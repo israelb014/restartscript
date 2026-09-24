@@ -1,0 +1,75 @@
+name: Windows tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    # Hard cap: every test schedule is at least 60 minutes in the future, so the runner can never
+    # reach a scheduled restart before the job ends.
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show PowerShell version
+        run: |
+          $PSVersionTable | Format-Table -AutoSize | Out-String -Width 200
+          if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+            throw "Expected Windows PowerShell 5.1, got $($PSVersionTable.PSVersion)"
+          }
+
+      - name: PSScriptAnalyzer
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          Import-Module PSScriptAnalyzer
+          "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version)"
+          $findings = @(Invoke-ScriptAnalyzer -Path .\Set-ScheduledRestart.ps1 -Severity Error, Warning, Information)
+          $findings | Format-Table RuleName, Severity, Line, Message -AutoSize -Wrap | Out-String -Width 200
+          "Findings: $($findings.Count)"
+          if ($findings.Count -gt 0) { exit 1 }
+
+      - name: Offline tests (mocked COM)
+        run: |
+          & .\tests\Test-ScheduledRestart.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Integration tests (real Task Scheduler)
+        run: |
+          & .\tests\Invoke-IntegrationTest.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Safety cleanup
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          schtasks.exe /Query /TN "\ScheduledRestart\ScheduledRestart" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            schtasks.exe /Delete /TN "\ScheduledRestart\ScheduledRestart" /F
+            Write-Host 'Leftover task deleted.'
+          }
+          exit 0
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduled-restart-log
+          path: |
+            C:\ProgramData\ScheduledRestart\ScheduledRestart.log
+            C:\ProgramData\ScheduledRestart\ScheduledRestart.previous.xml
+          if-no-files-found: ignore
