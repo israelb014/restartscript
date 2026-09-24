@@ -82,9 +82,24 @@ Task details:
 
 After saving, the tool reads the task back from Task Scheduler. It compares the trigger type, days,
 time and next run time with the values it calculated. It shows green **Verified** only when every
-value matches. If a value differs or registration fails, the tool deletes the task, writes an `ERROR`
-line to the log and lists the differences in red. If you were replacing a schedule, the old schedule
-is gone too, so create it again.
+value matches. If a value differs or registration fails, the tool deletes the new task, writes an
+`ERROR` line to the log and lists the differences in red.
+
+**Replacing an existing schedule** is protected by a rollback:
+
+1. The existing task is exported as XML. A copy is saved to
+   `C:\ProgramData\ScheduledRestart\ScheduledRestart.previous.xml`. If the export fails, the replace
+   stops and the existing task is left unchanged.
+2. The existing task is deleted, then the new one is registered and verified.
+3. If the new task fails registration or verification, it is deleted. The previous task is
+   re-registered from the exported XML, and the tool checks that it exists with the same schedule.
+   You see the failure details in red, then a yellow message: **New schedule failed - previous
+   schedule restored**.
+4. If the restore also fails, the tool shows it in red, says that no scheduled restart is active,
+   and prints a `schtasks.exe /Create ... /XML` command to restore the backup file manually.
+
+Every step is logged: the export and delete (`INFO`), the failed new schedule (`ERROR`), and the
+restore (`WARN` when restored, `ERROR` when it could not be restored).
 
 ### 2. Show current schedule
 
@@ -111,6 +126,7 @@ Closes the tool.
 | --- | --- |
 | `C:\ProgramData\ScheduledRestart\ScheduledRestart.log` | Every create, replace and delete action and every error |
 | Windows **Application** event log, source `ScheduledRestart` | Create/replace (Event ID 1001) and delete (Event ID 1002) |
+| `C:\ProgramData\ScheduledRestart\ScheduledRestart.previous.xml` | XML export of the task that was replaced most recently (UTF-16). Restore it with `schtasks.exe /Create /TN "\ScheduledRestart\ScheduledRestart" /XML "<file>" /RU SYSTEM /F` |
 
 Log line format:
 
@@ -132,7 +148,7 @@ $svc = New-Object -ComObject Schedule.Service
 $svc.Connect()
 $svc.GetFolder('\').DeleteFolder('ScheduledRestart', 0)   # only succeeds when the folder is empty
 
-# 2. Delete the log folder
+# 2. Delete the log folder (log file and task XML backup)
 Remove-Item -Path 'C:\ProgramData\ScheduledRestart' -Recurse -Force
 
 # 3. Remove the event log source (existing events stay in the Application log)
@@ -157,3 +173,10 @@ You can also delete the task and folder in Task Scheduler (`taskschd.msc`) under
   ```
 - To test the helper functions, you can dot-source the script (`. .\Set-ScheduledRestart.ps1`)
   without starting the menu.
+- `tests/Test-ScheduledRestart.ps1` holds offline tests. They cover schedule calculations, input
+  validation, the XML triggers, read-back verification and the replace/rollback flow, with the
+  Task Scheduler calls mocked. They run on Windows PowerShell 5.1 or PowerShell 7 on any OS, and
+  exit with code 1 if a check fails:
+  ```powershell
+  powershell.exe -NoProfile -File .\tests\Test-ScheduledRestart.ps1
+  ```

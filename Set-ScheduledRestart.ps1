@@ -62,6 +62,7 @@ $script:ActionPath       = 'C:\Windows\System32\shutdown.exe'
 $script:ActionArguments  = '/r /f /t 0 /d p:4:1 /c "Scheduled restart"'
 $script:LogDirectory     = 'C:\ProgramData\ScheduledRestart'
 $script:LogFile          = 'C:\ProgramData\ScheduledRestart\ScheduledRestart.log'
+$script:BackupFile       = 'C:\ProgramData\ScheduledRestart\ScheduledRestart.previous.xml'
 $script:EventSource      = 'ScheduledRestart'
 $script:EventLogName     = 'Application'
 $script:EventIdCreated   = 1001
@@ -724,6 +725,21 @@ function Add-TaskTrigger {
     }
 }
 
+function Register-TaskXml {
+    <# Registers (create or update) the restart task from an XML string as SYSTEM. Returns the registered task; the caller must release it. #>
+    param(
+        [Parameter(Mandatory = $true)]$Folder,
+        [Parameter(Mandatory = $true)][string]$Xml
+    )
+    return $Folder.RegisterTask(
+        $script:TaskName,
+        $Xml,
+        $script:TASK_CREATE_OR_UPDATE,
+        (Get-SystemAccountName),
+        $null,
+        $script:TASK_LOGON_SERVICE_ACCOUNT)
+}
+
 function New-RestartTask {
     <#
         Creates or replaces the restart task. "Last day" / "last weekday" schedules are registered from
@@ -786,13 +802,7 @@ function New-RestartTask {
         $folder = Get-TaskFolder -Service $service
         if ($useXml) {
             $taskXml = Get-TaskXmlWithTrigger -TaskXml $definition.XmlText -Schedule $Schedule
-            $registered = $folder.RegisterTask(
-                $script:TaskName,
-                $taskXml,
-                $script:TASK_CREATE_OR_UPDATE,
-                (Get-SystemAccountName),
-                $null,
-                $script:TASK_LOGON_SERVICE_ACCOUNT)
+            $registered = Register-TaskXml -Folder $folder -Xml $taskXml
         }
         else {
             $registered = $folder.RegisterTaskDefinition(
@@ -809,6 +819,66 @@ function New-RestartTask {
     }
     finally {
         Close-ComObject -InputObject @($registered, $action, $actions, $triggers, $settings, $principal, $regInfo, $definition, $folder, $service)
+    }
+}
+
+function Get-RestartTaskXml {
+    <# Exports the restart task definition as XML, or returns $null when the task does not exist. #>
+    $service = $null
+    $folder = $null
+    $task = $null
+    try {
+        $service = Get-TaskService
+        try {
+            $folder = $service.GetFolder($script:TaskFolderPath)
+            $task = $folder.GetTask($script:TaskName)
+        }
+        catch {
+            if (Test-IsNotFoundError -ErrorRecord $_) { return $null }
+            throw
+        }
+        return [string]$task.Xml
+    }
+    catch {
+        throw ('Unable to export the scheduled restart task XML: {0}' -f $_.Exception.Message)
+    }
+    finally {
+        Close-ComObject -InputObject @($task, $folder, $service)
+    }
+}
+
+function Save-TaskBackup {
+    <# Writes exported task XML to the backup file (UTF-16, matching the XML declaration). Returns the path, or $null on failure. #>
+    param([Parameter(Mandatory = $true)][string]$Xml)
+    try {
+        if (-not (Test-Path -LiteralPath $script:LogDirectory -PathType Container)) {
+            $null = New-Item -Path $script:LogDirectory -ItemType Directory -Force
+        }
+        Set-Content -LiteralPath $script:BackupFile -Value $Xml -Encoding Unicode
+        return $script:BackupFile
+    }
+    catch {
+        Write-LogEntry -Level WARN -Message ('Unable to save the task backup file {0}: {1}. The exported XML is kept in memory only.' -f $script:BackupFile, $_.Exception.Message)
+        return $null
+    }
+}
+
+function Restore-RestartTask {
+    <# Re-registers the restart task from previously exported XML. #>
+    param([Parameter(Mandatory = $true)][string]$Xml)
+    $service = $null
+    $folder = $null
+    $registered = $null
+    try {
+        $service = Get-TaskService
+        $folder = Get-TaskFolder -Service $service
+        $registered = Register-TaskXml -Folder $folder -Xml $Xml
+    }
+    catch {
+        throw ('Unable to re-register the previous task from its exported XML: {0}' -f $_.Exception.Message)
+    }
+    finally {
+        Close-ComObject -InputObject @($registered, $folder, $service)
     }
 }
 
@@ -1187,6 +1257,152 @@ function Show-ScheduleConfirmation {
     Write-Host ''
 }
 
+function Invoke-PreviousTaskRestore {
+    <#
+        Re-registers the previous task from its exported XML and verifies that it exists with the same
+        schedule. Returns the problems found; an empty result means the restore succeeded.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Xml,
+        [Parameter(Mandatory = $true)]$Previous
+    )
+    $problems = @()
+    try {
+        Restore-RestartTask -Xml $Xml
+        $restored = Get-RestartTaskInfo
+        if ($null -eq $restored) {
+            $problems += 'The previous task was not found after re-registering it.'
+        }
+        elseif ($restored.Summary -ne $Previous.Summary) {
+            $problems += ('Restored schedule differs: expected "{0}", found "{1}".' -f $Previous.Summary, $restored.Summary)
+        }
+    }
+    catch {
+        $problems += $_.Exception.Message
+    }
+    return , ([string[]]$problems)
+}
+
+function Invoke-ScheduleRegistration {
+    <#
+        Registers a confirmed schedule and verifies it. When a task already exists, its XML is exported
+        (and saved to the backup file) before it is deleted. If the new task fails registration or
+        verification, the new task is deleted and the previous one is re-registered from the XML.
+        Returns: Verified, Restored, Failed or Aborted.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Schedule,
+        $Existing
+    )
+    $summary = Get-ScheduleSummary -Schedule $Schedule
+    $problems = @()
+    $info = $null
+    $previousXml = $null
+    $backupPath = $null
+
+    # Step 1 (replace only): export the existing task, then delete it.
+    if ($null -ne $Existing) {
+        try {
+            $previousXml = Get-RestartTaskXml
+            if ([string]::IsNullOrEmpty($previousXml)) {
+                throw 'Task Scheduler returned no XML for the existing task.'
+            }
+        }
+        catch {
+            $message = 'Replace aborted, existing task left unchanged: {0}' -f $_.Exception.Message
+            Write-LogEntry -Level ERROR -Message $message
+            Write-Status -Type Error -Message ('  ERROR: {0}' -f $message)
+            return 'Aborted'
+        }
+        $backupPath = Save-TaskBackup -Xml $previousXml
+        $backupText = 'in memory only'
+        if ($null -ne $backupPath) { $backupText = $backupPath }
+        Write-LogEntry -Level INFO -Message ('Exported previous task XML before replacing it. Previous schedule: {0}. Backup: {1}.' -f $Existing.Summary, $backupText)
+        try {
+            $null = Remove-RestartTask
+            Write-LogEntry -Level INFO -Message ('Deleted previous scheduled restart ({0}) to register the new schedule.' -f $Existing.Summary)
+        }
+        catch {
+            $problems += ('Unable to delete the previous task: {0}' -f $_.Exception.Message)
+        }
+    }
+
+    # Step 2: register the new task and verify it against the calculated schedule.
+    if ($problems.Count -eq 0) {
+        try {
+            New-RestartTask -Schedule $Schedule
+            $info = Get-RestartTaskInfo
+            if ($null -eq $info) {
+                $problems += 'The task was not found after registration.'
+            }
+            else {
+                $problems += Get-ScheduleDifference -Expected $Schedule -Actual $info
+            }
+        }
+        catch {
+            $problems += $_.Exception.Message
+        }
+    }
+
+    if ($problems.Count -eq 0) {
+        $nextText = 'None'
+        if ($null -ne $info.NextRunTime) { $nextText = Get-DateText -Date $info.NextRunTime }
+        if ($null -ne $Existing) {
+            $verb = 'Replaced'
+            $previousText = $Existing.Summary
+        }
+        else {
+            $verb = 'Created'
+            $previousText = 'none'
+        }
+        $message = '{0} scheduled restart {1}\{2}. Schedule: {3}. Next run: {4}. Previous schedule: {5}.' -f $verb, $script:TaskFolderPath, $script:TaskName, $summary, $nextText, $previousText
+        Write-LogEntry -Level INFO -Message $message
+        Write-AppEventLog -EventId $script:EventIdCreated -Message ('{0} (by {1})' -f $message, $script:CurrentUser)
+
+        Write-Host ''
+        Write-Status -Type Success -Message ('  Verified: {0} successfully and Task Scheduler matches the requested schedule.' -f $verb.ToLowerInvariant())
+        Write-Status -Type Success -Message ('  Schedule : {0}' -f $summary)
+        Write-Status -Type Success -Message ('  Next run : {0}' -f $nextText)
+        return 'Verified'
+    }
+
+    # Step 3: the new schedule failed - delete whatever was registered.
+    $cleanup = Invoke-FailedTaskCleanup
+    Write-LogEntry -Level ERROR -Message ('New schedule failed registration or verification. Requested: {0}. Problems: {1} Cleanup: {2}' -f $summary, ($problems -join ' | '), $cleanup)
+    Write-Host ''
+    Write-Status -Type Error -Message '  ERROR: The new schedule could not be verified and was not kept.'
+    foreach ($problem in $problems) {
+        Write-Status -Type Error -Message ('    - {0}' -f $problem)
+    }
+    Write-Status -Type Error -Message ('  {0}' -f $cleanup)
+
+    if ($null -eq $previousXml) {
+        return 'Failed'
+    }
+
+    # Step 4: re-register the previous task from the exported XML and verify it exists.
+    $restoreProblems = Invoke-PreviousTaskRestore -Xml $previousXml -Previous $Existing
+    if ($restoreProblems.Count -eq 0) {
+        Write-LogEntry -Level WARN -Message ('Previous schedule restored from exported XML and verified: {0}.' -f $Existing.Summary)
+        Write-Status -Type Warning -Message '  New schedule failed - previous schedule restored'
+        Write-Status -Type Warning -Message ('  Active schedule: {0}' -f $Existing.Summary)
+        return 'Restored'
+    }
+
+    $manual = 'No backup file is available.'
+    if ($null -ne $backupPath) {
+        $manual = 'Restore manually: schtasks.exe /Create /TN "{0}\{1}" /XML "{2}" /RU SYSTEM /F' -f $script:TaskFolderPath, $script:TaskName, $backupPath
+    }
+    Write-LogEntry -Level ERROR -Message ('Unable to restore the previous schedule ({0}): {1} {2}' -f $Existing.Summary, ($restoreProblems -join ' | '), $manual)
+    Write-Status -Type Error -Message ('  ERROR: The previous schedule ({0}) could NOT be restored.' -f $Existing.Summary)
+    foreach ($problem in $restoreProblems) {
+        Write-Status -Type Error -Message ('    - {0}' -f $problem)
+    }
+    Write-Status -Type Error -Message ('  {0}' -f $manual)
+    Write-Status -Type Error -Message '  No scheduled restart is active on this computer.'
+    return 'Failed'
+}
+
 function Invoke-CreateRestart {
     <# Menu option 1: create or replace the scheduled restart. #>
     Write-Host ''
@@ -1229,56 +1445,7 @@ function Invoke-CreateRestart {
         return
     }
 
-    $summary = Get-ScheduleSummary -Schedule $schedule
-    $problems = @()
-    $info = $null
-    try {
-        New-RestartTask -Schedule $schedule
-        $info = Get-RestartTaskInfo
-        if ($null -eq $info) {
-            $problems += 'The task was not found after registration.'
-        }
-        else {
-            $problems += Get-ScheduleDifference -Expected $schedule -Actual $info
-        }
-    }
-    catch {
-        $problems += $_.Exception.Message
-    }
-
-    if ($problems.Count -gt 0) {
-        $cleanup = Invoke-FailedTaskCleanup
-        $message = 'Scheduled restart registration FAILED verification. Requested: {0}. Problems: {1} Cleanup: {2}' -f $summary, ($problems -join ' | '), $cleanup
-        Write-LogEntry -Level ERROR -Message $message
-        Write-Host ''
-        Write-Status -Type Error -Message '  ERROR: The scheduled restart could not be verified and was not kept.'
-        foreach ($problem in $problems) {
-            Write-Status -Type Error -Message ('    - {0}' -f $problem)
-        }
-        Write-Status -Type Error -Message ('  {0}' -f $cleanup)
-        if ($null -ne $existing) {
-            Write-Status -Type Error -Message ('  The previous schedule ({0}) is no longer active.' -f $existing.Summary)
-        }
-        return
-    }
-
-    $nextText = 'None'
-    if ($null -ne $info.NextRunTime) { $nextText = Get-DateText -Date $info.NextRunTime }
-
-    if ($null -ne $existing) {
-        $verb = 'Replaced'
-    }
-    else {
-        $verb = 'Created'
-    }
-    $message = '{0} scheduled restart {1}\{2}. Schedule: {3}. Next run: {4}. Previous schedule: {5}.' -f $verb, $script:TaskFolderPath, $script:TaskName, $summary, $nextText, $(if ($null -ne $existing) { $existing.Summary } else { 'none' })
-    Write-LogEntry -Level INFO -Message $message
-    Write-AppEventLog -EventId $script:EventIdCreated -Message ('{0} (by {1})' -f $message, $script:CurrentUser)
-
-    Write-Host ''
-    Write-Status -Type Success -Message ('  Verified: {0} successfully and Task Scheduler matches the requested schedule.' -f $verb.ToLowerInvariant())
-    Write-Status -Type Success -Message ('  Schedule : {0}' -f $summary)
-    Write-Status -Type Success -Message ('  Next run : {0}' -f $nextText)
+    $null = Invoke-ScheduleRegistration -Schedule $schedule -Existing $existing
 }
 
 function Show-RestartSchedule {
