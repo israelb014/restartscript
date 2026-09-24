@@ -32,7 +32,9 @@ The restart is immediate and forced. Users get no warning and cannot postpone it
      ```
 3. If the console is not elevated, accept the UAC prompt. The tool opens in a new elevated window.
 
-If the file came from the internet and Windows blocks it, run `Unblock-File C:\Tools\Set-ScheduledRestart.ps1` first.
+At startup the script runs `Unblock-File` on itself to remove the "downloaded from the internet" mark.
+If your execution policy stops the script before it can run, run
+`Unblock-File C:\Tools\Set-ScheduledRestart.ps1` once, or start it with `-ExecutionPolicy Bypass` as shown above.
 
 ## Menu walkthrough
 
@@ -75,6 +77,14 @@ Task details:
 - If the computer is off or asleep and misses the scheduled time, the restart is **skipped**. It never runs late.
 - Runs on battery power, is not stopped when switching to battery, and has a 10-minute execution limit. A second instance is never started.
 - The task description records who created it, when, and the schedule in plain English.
+- "Last day of month" and "Last <weekday> of month" schedules are registered from task XML
+  (`<Day>Last</Day>`, `<Week>Last</Week>`), as documented in the Task Scheduler schema. All other schedules use the COM trigger API.
+
+After saving, the tool reads the task back from Task Scheduler. It compares the trigger type, days,
+time and next run time with the values it calculated. It shows green **Verified** only when every
+value matches. If a value differs or registration fails, the tool deletes the task, writes an `ERROR`
+line to the log and lists the differences in red. If you were replacing a schedule, the old schedule
+is gone too, so create it again.
 
 ### 2. Show current schedule
 

@@ -69,6 +69,9 @@ $script:EventIdDeleted   = 1002
 $script:EventSourceReady = $null
 $script:Culture          = [System.Globalization.CultureInfo]::InvariantCulture
 $script:CurrentUser      = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$script:ScriptPath       = $PSCommandPath
+$script:TaskXmlNamespace = 'http://schemas.microsoft.com/windows/2004/02/mit/task'
+$script:MonthNames       = @('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December')
 
 # Task Scheduler COM constants (taskschd.h)
 $script:TASK_TRIGGER_TIME           = 1
@@ -593,6 +596,86 @@ function Get-TaskFolder {
     }
 }
 
+function Get-TriggerStartBoundary {
+    <# Returns the StartBoundary string for a schedule: the one-time date, or today for recurring schedules. #>
+    param([Parameter(Mandatory = $true)]$Schedule)
+    $startDate = (Get-Date).Date
+    if ($Schedule.Type -eq 'Once') { $startDate = $Schedule.StartDate.Date }
+    return ($startDate + $Schedule.Time).ToString('yyyy-MM-ddTHH:mm:ss', $script:Culture)
+}
+
+function Test-RequiresXmlTrigger {
+    <#
+        Returns $true for "last day of month" and "last <weekday> of month" schedules. These are
+        registered through task XML (<Day>Last</Day> / <Week>Last</Week>, as documented in the
+        Task Scheduler schema) instead of COM trigger properties.
+    #>
+    param([Parameter(Mandatory = $true)]$Schedule)
+    if ($Schedule.Type -eq 'MonthlyDay' -and $Schedule.LastDayOfMonth) { return $true }
+    if ($Schedule.Type -eq 'MonthlyWeekday' -and ($Schedule.WeeksOfMonth -contains 5)) { return $true }
+    return $false
+}
+
+function Get-CalendarTriggerXml {
+    <# Returns a <CalendarTrigger> element (task XML schema) for a monthly schedule. #>
+    param([Parameter(Mandatory = $true)]$Schedule)
+    $months = ($script:MonthNames | ForEach-Object { '<{0} />' -f $_ }) -join ''
+    switch ($Schedule.Type) {
+        'MonthlyDay' {
+            $days = @($Schedule.MonthDays | Sort-Object | ForEach-Object { '<Day>{0}</Day>' -f $_ })
+            if ($Schedule.LastDayOfMonth) { $days += '<Day>Last</Day>' }
+            $body = '<ScheduleByMonth><DaysOfMonth>{0}</DaysOfMonth><Months>{1}</Months></ScheduleByMonth>' -f ($days -join ''), $months
+        }
+        'MonthlyWeekday' {
+            $weeks = @($Schedule.WeeksOfMonth | Sort-Object | ForEach-Object {
+                    if ($_ -eq 5) { '<Week>Last</Week>' } else { '<Week>{0}</Week>' -f $_ }
+                })
+            $sortedDays = Get-SortedWeekday -Day $Schedule.DaysOfWeek
+            $weekdays = @($sortedDays | ForEach-Object { '<{0} />' -f $_ })
+            $body = '<ScheduleByMonthDayOfWeek><Weeks>{0}</Weeks><DaysOfWeek>{1}</DaysOfWeek><Months>{2}</Months></ScheduleByMonthDayOfWeek>' -f ($weeks -join ''), ($weekdays -join ''), $months
+        }
+        default {
+            throw ('Schedule type "{0}" is not registered through XML.' -f $Schedule.Type)
+        }
+    }
+    return ('<CalendarTrigger xmlns="{0}"><StartBoundary>{1}</StartBoundary><Enabled>true</Enabled>{2}</CalendarTrigger>' -f $script:TaskXmlNamespace, (Get-TriggerStartBoundary -Schedule $Schedule), $body)
+}
+
+function Get-TaskXmlWithTrigger {
+    <# Inserts the calendar trigger for a schedule into a task definition XML string and returns the new XML. #>
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskXml,
+        [Parameter(Mandatory = $true)]$Schedule
+    )
+    $document = New-Object System.Xml.XmlDocument
+    $document.LoadXml($TaskXml)
+    $ns = New-Object System.Xml.XmlNamespaceManager($document.NameTable)
+    $ns.AddNamespace('t', $script:TaskXmlNamespace)
+
+    $task = $document.SelectSingleNode('/t:Task', $ns)
+    if ($null -eq $task) { throw 'The task definition XML has no Task element.' }
+
+    $triggers = $task.SelectSingleNode('t:Triggers', $ns)
+    if ($null -eq $triggers) {
+        $triggers = $document.CreateElement('Triggers', $script:TaskXmlNamespace)
+        $registrationInfo = $task.SelectSingleNode('t:RegistrationInfo', $ns)
+        if ($null -ne $registrationInfo) {
+            $null = $task.InsertAfter($triggers, $registrationInfo)
+        }
+        else {
+            $null = $task.PrependChild($triggers)
+        }
+    }
+    $triggers.RemoveAll()
+
+    $fragment = New-Object System.Xml.XmlDocument
+    $fragment.LoadXml((Get-CalendarTriggerXml -Schedule $Schedule))
+    $trigger = $document.ImportNode($fragment.DocumentElement, $true)
+    $trigger.RemoveAttribute('xmlns')   # redundant: Triggers already declares the task namespace
+    $null = $triggers.AppendChild($trigger)
+    return $document.OuterXml
+}
+
 function Add-TaskTrigger {
     <# Adds a trigger matching the schedule to the given (in-memory) trigger collection. #>
     param(
@@ -604,13 +687,11 @@ function Add-TaskTrigger {
         switch ($Schedule.Type) {
             'Once' {
                 $trigger = $Triggers.Create($script:TASK_TRIGGER_TIME)
-                $startDate = $Schedule.StartDate.Date
             }
             'Weekly' {
                 $trigger = $Triggers.Create($script:TASK_TRIGGER_WEEKLY)
                 $trigger.DaysOfWeek = [int16](Get-DayBitmask -Day $Schedule.DaysOfWeek)
                 $trigger.WeeksInterval = 1
-                $startDate = (Get-Date).Date
             }
             'MonthlyDay' {
                 $trigger = $Triggers.Create($script:TASK_TRIGGER_MONTHLY)
@@ -619,7 +700,6 @@ function Add-TaskTrigger {
                 $trigger.DaysOfMonth = [int]$mask
                 $trigger.MonthsOfYear = [int16]$script:ALL_MONTHS
                 $trigger.RunOnLastDayOfMonth = [bool]$Schedule.LastDayOfMonth
-                $startDate = (Get-Date).Date
             }
             'MonthlyWeekday' {
                 $trigger = $Triggers.Create($script:TASK_TRIGGER_MONTHLYDOW)
@@ -631,14 +711,12 @@ function Add-TaskTrigger {
                 $trigger.WeeksOfMonth = [int16]$weekMask
                 $trigger.RunOnLastWeekOfMonth = ($Schedule.WeeksOfMonth -contains 5)
                 $trigger.MonthsOfYear = [int16]$script:ALL_MONTHS
-                $startDate = (Get-Date).Date
             }
             default {
                 throw ('Unsupported schedule type "{0}".' -f $Schedule.Type)
             }
         }
-        $start = $startDate + $Schedule.Time
-        $trigger.StartBoundary = $start.ToString('yyyy-MM-ddTHH:mm:ss', $script:Culture)
+        $trigger.StartBoundary = Get-TriggerStartBoundary -Schedule $Schedule
         $trigger.Enabled = $true
     }
     finally {
@@ -647,9 +725,11 @@ function Add-TaskTrigger {
 }
 
 function New-RestartTask {
-    <# Creates or replaces the restart task. Returns the next run time reported by Task Scheduler. #>
+    <#
+        Creates or replaces the restart task. "Last day" / "last weekday" schedules are registered from
+        task XML (RegisterTask); all others from the COM definition (RegisterTaskDefinition).
+    #>
     [CmdletBinding(SupportsShouldProcess = $true)]
-    [OutputType([datetime])]
     param([Parameter(Mandatory = $true)]$Schedule)
 
     $service = $null
@@ -688,8 +768,11 @@ function New-RestartTask {
         $settings.AllowDemandStart = $true
         $settings.Hidden = $false
 
-        $triggers = $definition.Triggers
-        Add-TaskTrigger -Triggers $triggers -Schedule $Schedule
+        $useXml = Test-RequiresXmlTrigger -Schedule $Schedule
+        if (-not $useXml) {
+            $triggers = $definition.Triggers
+            Add-TaskTrigger -Triggers $triggers -Schedule $Schedule
+        }
 
         $actions = $definition.Actions
         $action = $actions.Create($script:TASK_ACTION_EXEC)
@@ -697,20 +780,29 @@ function New-RestartTask {
         $action.Arguments = $script:ActionArguments
 
         if (-not $PSCmdlet.ShouldProcess(('{0}\{1}' -f $script:TaskFolderPath, $script:TaskName), 'Register scheduled restart task')) {
-            return $null
+            return
         }
 
         $folder = Get-TaskFolder -Service $service
-        $registered = $folder.RegisterTaskDefinition(
-            $script:TaskName,
-            $definition,
-            $script:TASK_CREATE_OR_UPDATE,
-            (Get-SystemAccountName),
-            $null,
-            $script:TASK_LOGON_SERVICE_ACCOUNT)
-
-        if ($registered.NextRunTime.Year -ge 2000) { return [datetime]$registered.NextRunTime }
-        return $null
+        if ($useXml) {
+            $taskXml = Get-TaskXmlWithTrigger -TaskXml $definition.XmlText -Schedule $Schedule
+            $registered = $folder.RegisterTask(
+                $script:TaskName,
+                $taskXml,
+                $script:TASK_CREATE_OR_UPDATE,
+                (Get-SystemAccountName),
+                $null,
+                $script:TASK_LOGON_SERVICE_ACCOUNT)
+        }
+        else {
+            $registered = $folder.RegisterTaskDefinition(
+                $script:TaskName,
+                $definition,
+                $script:TASK_CREATE_OR_UPDATE,
+                (Get-SystemAccountName),
+                $null,
+                $script:TASK_LOGON_SERVICE_ACCOUNT)
+        }
     }
     catch {
         throw ('Unable to register the scheduled restart task: {0}' -f $_.Exception.Message)
@@ -954,6 +1046,84 @@ function Read-MonthlySchedule {
 
 #endregion Input
 
+#region Verification
+
+function Get-ScheduleDifference {
+    <#
+        Compares the schedule the script calculated with the task read back from Task Scheduler.
+        Returns one text line per difference; an empty result means everything matches.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]$Expected,
+        [Parameter(Mandatory = $true)]$Actual,
+        [datetime]$From = (Get-Date)
+    )
+    $differences = @()
+    $exp = $Expected
+    $act = $Actual.Schedule
+
+    if ($exp.Type -ne $act.Type) {
+        $differences += ('Trigger type: expected {0}, found {1}' -f (Get-ScheduleTypeText -Schedule $exp), (Get-ScheduleTypeText -Schedule $act))
+    }
+    else {
+        $checks = @()
+        switch ($exp.Type) {
+            'Once' {
+                $checks += , @('Date', $exp.StartDate.ToString('dd/MM/yyyy', $script:Culture), $act.StartDate.ToString('dd/MM/yyyy', $script:Culture))
+            }
+            'Weekly' {
+                $checks += , @('Weekdays', ((Get-SortedWeekday -Day $exp.DaysOfWeek) -join ', '), ((Get-SortedWeekday -Day $act.DaysOfWeek) -join ', '))
+            }
+            'MonthlyDay' {
+                $checks += , @('Days of month', (($exp.MonthDays | Sort-Object) -join ', '), (($act.MonthDays | Sort-Object) -join ', '))
+                $checks += , @('Last day of month', [string]$exp.LastDayOfMonth, [string]$act.LastDayOfMonth)
+            }
+            'MonthlyWeekday' {
+                $checks += , @('Weeks of month', (($exp.WeeksOfMonth | Sort-Object) -join ', '), (($act.WeeksOfMonth | Sort-Object) -join ', '))
+                $checks += , @('Weekdays', ((Get-SortedWeekday -Day $exp.DaysOfWeek) -join ', '), ((Get-SortedWeekday -Day $act.DaysOfWeek) -join ', '))
+            }
+        }
+        foreach ($check in $checks) {
+            if ($check[1] -ne $check[2]) {
+                $differences += ('{0}: expected "{1}", found "{2}"' -f $check[0], $check[1], $check[2])
+            }
+        }
+    }
+
+    $expTime = Get-TimeText -Time $exp.Time
+    $actTime = Get-TimeText -Time $act.Time
+    if ($expTime -ne $actTime) {
+        $differences += ('Time: expected {0}, found {1}' -f $expTime, $actTime)
+    }
+
+    $expNext = 'None'
+    $nextRun = Get-NextRunTime -Schedule $exp -From $From
+    if ($null -ne $nextRun) { $expNext = Get-DateText -Date $nextRun }
+    $actNext = 'None'
+    if ($null -ne $Actual.NextRunTime) { $actNext = Get-DateText -Date $Actual.NextRunTime }
+    if ($expNext -ne $actNext) {
+        $differences += ('Next run: expected {0}, Task Scheduler reports {1}' -f $expNext, $actNext)
+    }
+
+    return , ([string[]]$differences)
+}
+
+function Invoke-FailedTaskCleanup {
+    <# Deletes a task that failed registration or verification. Returns a line describing the outcome. #>
+    try {
+        if ($null -eq (Get-RestartTaskInfo)) {
+            return 'No task was left behind.'
+        }
+        $null = Remove-RestartTask
+        return 'The task was deleted.'
+    }
+    catch {
+        return ('The task could NOT be deleted automatically: {0}. Delete it in Task Scheduler.' -f $_.Exception.Message)
+    }
+}
+
+#endregion Verification
+
 #region Menu actions
 
 function Show-Header {
@@ -1060,9 +1230,40 @@ function Invoke-CreateRestart {
     }
 
     $summary = Get-ScheduleSummary -Schedule $schedule
-    $nextRun = New-RestartTask -Schedule $schedule
+    $problems = @()
+    $info = $null
+    try {
+        New-RestartTask -Schedule $schedule
+        $info = Get-RestartTaskInfo
+        if ($null -eq $info) {
+            $problems += 'The task was not found after registration.'
+        }
+        else {
+            $problems += Get-ScheduleDifference -Expected $schedule -Actual $info
+        }
+    }
+    catch {
+        $problems += $_.Exception.Message
+    }
+
+    if ($problems.Count -gt 0) {
+        $cleanup = Invoke-FailedTaskCleanup
+        $message = 'Scheduled restart registration FAILED verification. Requested: {0}. Problems: {1} Cleanup: {2}' -f $summary, ($problems -join ' | '), $cleanup
+        Write-LogEntry -Level ERROR -Message $message
+        Write-Host ''
+        Write-Status -Type Error -Message '  ERROR: The scheduled restart could not be verified and was not kept.'
+        foreach ($problem in $problems) {
+            Write-Status -Type Error -Message ('    - {0}' -f $problem)
+        }
+        Write-Status -Type Error -Message ('  {0}' -f $cleanup)
+        if ($null -ne $existing) {
+            Write-Status -Type Error -Message ('  The previous schedule ({0}) is no longer active.' -f $existing.Summary)
+        }
+        return
+    }
+
     $nextText = 'None'
-    if ($null -ne $nextRun) { $nextText = Get-DateText -Date $nextRun }
+    if ($null -ne $info.NextRunTime) { $nextText = Get-DateText -Date $info.NextRunTime }
 
     if ($null -ne $existing) {
         $verb = 'Replaced'
@@ -1075,7 +1276,7 @@ function Invoke-CreateRestart {
     Write-AppEventLog -EventId $script:EventIdCreated -Message ('{0} (by {1})' -f $message, $script:CurrentUser)
 
     Write-Host ''
-    Write-Status -Type Success -Message ('  {0} successfully.' -f $verb)
+    Write-Status -Type Success -Message ('  Verified: {0} successfully and Task Scheduler matches the requested schedule.' -f $verb.ToLowerInvariant())
     Write-Status -Type Success -Message ('  Schedule : {0}' -f $summary)
     Write-Status -Type Success -Message ('  Next run : {0}' -f $nextText)
 }
@@ -1192,10 +1393,22 @@ function Invoke-MenuAction {
     }
 }
 
+function Clear-ConsoleScreen {
+    <# Clears the console; falls back to Clear-Host for hosts without a real console. #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseCompatibleCommands', '', Justification = 'Clear-Host is a built-in function in Windows PowerShell 5.1.')]
+    param()
+    try {
+        [System.Console]::Clear()
+    }
+    catch {
+        try { Clear-Host } catch { Write-Verbose 'Clearing the screen is not supported by this host.' }
+    }
+}
+
 function Invoke-MainMenu {
     <# Displays the menu until the user chooses Exit. #>
     while ($true) {
-        try { [System.Console]::Clear() } catch { Write-Verbose 'Console clearing is not supported by this host.' }
+        Clear-ConsoleScreen
         Show-Header
         Show-MainMenu
         $choice = (Read-Host -Prompt 'Select an option (1-5)')
@@ -1226,14 +1439,25 @@ function Invoke-ScheduledRestartTool {
         exit 1
     }
 
+    # Remove the "downloaded from the internet" mark so the elevated relaunch is not blocked.
+    if (-not [string]::IsNullOrEmpty($script:ScriptPath)) {
+        try {
+            Unblock-File -LiteralPath $script:ScriptPath -ErrorAction Stop
+        }
+        catch {
+            Write-Verbose ('Unblock-File failed: {0}' -f $_.Exception.Message)
+        }
+    }
+
     if (-not (Test-IsAdministrator)) {
-        if ([string]::IsNullOrEmpty($PSCommandPath)) {
+        if ([string]::IsNullOrEmpty($script:ScriptPath)) {
             Write-Status -Type Error -Message 'Administrator rights are required. Save the script to a file and run it again, or start PowerShell as Administrator.'
             exit 1
         }
         Write-Status -Type Warning -Message 'Administrator rights are required. Relaunching elevated...'
         $powershell = Join-Path -Path $env:SystemRoot -ChildPath 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $PSCommandPath
+        # The script path is wrapped in double quotes so paths with spaces survive the relaunch.
+        $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $script:ScriptPath
         try {
             Start-Process -FilePath $powershell -ArgumentList $arguments -Verb RunAs
         }
