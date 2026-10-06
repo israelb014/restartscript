@@ -15,6 +15,12 @@ namespace ScheduledRestart.Core
         public const string EventLogName = "Application";
         public const string SystemSid = "S-1-5-18";
 
+        /// <summary>
+        /// Maker's website, opened from the About window. Compile-time constant: never built from
+        /// user input, files, the registry or the network.
+        /// </summary>
+        public const string WebsiteUrl = "https://ib-fix.com";
+
         public const int EventCreated = 1001;
         public const int EventDeleted = 1002;
         public const int EventPaused = 1003;

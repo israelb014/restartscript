@@ -1,12 +1,13 @@
 <Window x:Class="ScheduledRestart.ScheduleDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ScheduledRestart"
         Title="קביעת תזמון" Width="500" SizeToContent="Height"
         ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
         FlowDirection="RightToLeft" FontFamily="Segoe UI" FontSize="14"
         Foreground="{StaticResource TextBrush}" Background="{StaticResource WindowBackground}"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
-    <StackPanel Margin="24,16,24,22" Style="{StaticResource EnterAnimation}">
+    <StackPanel Margin="24,14,24,8" Style="{StaticResource EnterAnimation}">
         <TextBlock x:Name="HeaderText" Style="{StaticResource H2}" Text="קביעת תזמון" />
 
         <TextBlock Style="{StaticResource Label}" Text="סוג תזמון" />
@@ -65,5 +66,7 @@
             <Button Content="שמור" Style="{StaticResource PrimaryButton}" IsDefault="True" Margin="0,0,10,0" Click="OnSave" />
             <Button Content="ביטול" Style="{StaticResource SecondaryButton}" IsCancel="True" />
         </StackPanel>
+
+        <local:SignatureLine Margin="0,14,0,0" />
     </StackPanel>
 </Window>

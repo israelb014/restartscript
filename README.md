@@ -19,6 +19,8 @@ The restart is immediate and forced. Users get no warning and cannot postpone it
 
 **הורדה:** את הקובץ `ScheduledRestart.exe` מורידים מעמוד ה־[Releases](https://github.com/israelb014/restartscript/releases/latest). זה קובץ יחיד: אין התקנה ואין קבצים נלווים.
 
+**תהליכים חיצוניים ורשת:** האפליקציה מפעילה רק את `shutdown.exe` (להפעלה מחדש מיידית ולביטולה). יש חריג אחד: לחיצה על הקישור ib-fix.com בחלון "אודות" מפעילה את `explorer.exe` עם הכתובת הקבועה `https://ib-fix.com`, כדי שהאתר ייפתח בדפדפן בהרשאות המשתמש הרגילות ולא כמנהל. האפליקציה עצמה לא שולחת שום בקשה לרשת.
+
 **הפעלה:** לוחצים פעמיים על הקובץ. בכל הפעלה נדרש אישור מנהל (UAC). האפליקציה פועלת ב־Windows 10 (גרסה 1607 ומעלה), ב־Windows 11 וב־Windows Server 2016 ומעלה, בלי להתקין שום רכיב נוסף.
 
 </div>

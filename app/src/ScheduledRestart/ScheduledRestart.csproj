@@ -25,7 +25,7 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Description>Schedules automatic computer restarts</Description>
     <Company>IB-Fix</Company>
-    <Copyright>Copyright © 2026 IB-Fix</Copyright>
+    <Copyright>© 2026 Israel Borochov (IB-Fix)</Copyright>
     <NeutralLanguage>he-IL</NeutralLanguage>
 
     <!-- Single-file output: no .pdb, no .config, no satellite assemblies. -->

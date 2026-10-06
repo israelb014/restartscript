@@ -49,7 +49,7 @@ jobs:
           foreach ($k in $expected.Keys) {
             if ($v.$k -ne $expected[$k]) { throw "$k is '$($v.$k)', expected '$($expected[$k])'" }
           }
-          if (-not $v.LegalCopyright) { throw 'Copyright is missing' }
+          if ($v.LegalCopyright -ne '© 2026 Israel Borochov (IB-Fix)') { throw "Copyright is '$($v.LegalCopyright)'" }
           $text = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($exe))
           foreach ($needle in 'requireAdministrator', 'PerMonitorV2', '{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}') {
             if (-not $text.Contains($needle)) { throw "Embedded manifest is missing '$needle'" }
