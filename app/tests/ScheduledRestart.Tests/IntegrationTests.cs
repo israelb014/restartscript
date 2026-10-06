@@ -192,7 +192,7 @@ namespace ScheduledRestart.Tests
             service.Connect();
             bool folderGone = false;
             try { service.GetFolder("\\" + TestFolder); }
-            catch (System.Runtime.InteropServices.COMException) { folderGone = true; }
+            catch (Exception ex) when (ex.HResult == unchecked((int)0x80070002)) { folderGone = true; }
             Assert.IsTrue(folderGone, "empty task folder removed");
         }
 
