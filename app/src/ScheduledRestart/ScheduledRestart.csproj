@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net462</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>ScheduledRestart</AssemblyName>
+    <RootNamespace>ScheduledRestart</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <Deterministic>true</Deterministic>
+
+    <!-- Version: CI passes /p:BuildNumber=<run number>. -->
+    <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+    <Version>2.0.$(BuildNumber)</Version>
+    <AssemblyVersion>2.0.$(BuildNumber).0</AssemblyVersion>
+    <FileVersion>2.0.$(BuildNumber)</FileVersion>
+    <InformationalVersion>2.0.$(BuildNumber)</InformationalVersion>
+    <Product>Scheduled Restart</Product>
+    <AssemblyTitle>Scheduled Restart</AssemblyTitle>
+    <Description>Schedules automatic computer restarts</Description>
+    <Company>IB-Fix</Company>
+    <Copyright>Copyright © 2026 IB-Fix</Copyright>
+    <NeutralLanguage>he-IL</NeutralLanguage>
+
+    <!-- Single-file output: no .pdb, no .config, no satellite assemblies. -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>false</GenerateBindingRedirectsOutputType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <!-- Build-time only: .NET Framework 4.6.2 reference assemblies. Nothing ships with the exe. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

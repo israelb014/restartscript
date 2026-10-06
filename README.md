@@ -11,6 +11,18 @@ C:\Windows\System32\shutdown.exe /r /f /t 0 /d p:4:1 /c "Scheduled restart"
 
 The restart is immediate and forced. Users get no warning and cannot postpone it.
 
+## אפליקציית Windows: ScheduledRestart.exe
+
+<div dir="rtl">
+
+**מה זה:** אפליקציה גרפית בעברית שמחליפה את התפריט של הסקריפט. היא מאפשרת לקבוע, לשנות, להשהות ולבטל הפעלה מחדש אוטומטית של המחשב: חד־פעמית, יומית, שבועית או חודשית. אפשר גם להציג התראה למשתמש לפני ההפעלה מחדש, להפעיל מחדש מיד ולצפות בלוג. האפליקציה משתמשת באותה משימה מתוזמנת, באותו לוג ובאותן הגדרות כמו הסקריפט, ולכן תזמון שנקבע באחד מהם מוצג וניתן לעריכה גם בשני.
+
+**הורדה:** את הקובץ `ScheduledRestart.exe` מורידים מעמוד ה־[Releases](https://github.com/israelb014/restartscript/releases/latest). זה קובץ יחיד: אין התקנה ואין קבצים נלווים.
+
+**הפעלה:** לוחצים פעמיים על הקובץ. בכל הפעלה נדרש אישור מנהל (UAC). האפליקציה פועלת ב־Windows 10 (גרסה 1607 ומעלה), ב־Windows 11 וב־Windows Server 2016 ומעלה, בלי להתקין שום רכיב נוסף.
+
+</div>
+
 ## Requirements
 
 | Item | Requirement |

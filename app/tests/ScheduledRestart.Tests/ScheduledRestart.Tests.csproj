@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The tests compile the app's source files directly (linked), so the app stays a single exe with no
+    library to reference. On Windows they target net462 and include the Task Scheduler integration
+    tests; elsewhere they target net8.0 and run the pure logic tests only.
+  -->
+  <PropertyGroup>
+    <IsWindows>$([MSBuild]::IsOSPlatform('Windows'))</IsWindows>
+    <TargetFramework Condition="'$(IsWindows)' == 'true'">net462</TargetFramework>
+    <TargetFramework Condition="'$(IsWindows)' != 'true'">net8.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ScheduledRestart.Tests</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\ScheduledRestart\Core\*.cs" Link="Core\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsWindows)' == 'true'">
+    <Compile Include="..\..\src\ScheduledRestart\Services\*.cs" Link="Services\%(Filename)%(Extension)" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsWindows)' != 'true'">
+    <Compile Remove="IntegrationTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.6.1" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.6.1" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

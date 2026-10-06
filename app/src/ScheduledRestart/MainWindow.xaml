@@ -1,0 +1,108 @@
+<Window x:Class="ScheduledRestart.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="תזמון הפעלה מחדש" Width="520" Height="640"
+        ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
+        FlowDirection="RightToLeft" FontFamily="Segoe UI" FontSize="14"
+        Foreground="{StaticResource TextBrush}" Background="{StaticResource WindowBackground}"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <Grid Margin="22,16,22,22" Style="{StaticResource EnterAnimation}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Style="{StaticResource H1}" Text="תזמון הפעלה מחדש" />
+            <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0" Text="הפעלה מחדש אוטומטית של המחשב במועד קבוע" />
+        </StackPanel>
+
+        <!-- Status card -->
+        <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,16,0,0" Padding="20">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid Width="56" Height="56" VerticalAlignment="Top">
+                    <Ellipse x:Name="StatusRing" StrokeThickness="2.5" Stroke="{StaticResource AccentBrush}" Fill="{StaticResource AccentSoftBrush}" />
+                    <Path x:Name="StatusIcon" Style="{StaticResource Icon}" Width="26" Height="26" Data="{StaticResource IconEmpty}" />
+                </Grid>
+                <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                    <TextBlock x:Name="StatusTitle" Style="{StaticResource H2}" />
+                    <TextBlock x:Name="StatusDescription" Style="{StaticResource Body}" FontSize="15" Margin="0,6,0,0" />
+                    <TextBlock x:Name="NextRunText" Style="{StaticResource Dim}" Margin="0,6,0,0" />
+                    <TextBlock x:Name="WarningText" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                    <TextBlock x:Name="LastRunText" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IconComputer}" Width="14" Height="14"
+                              Stroke="{StaticResource TextFaintBrush}" StrokeThickness="1.6" />
+                        <TextBlock x:Name="ComputerText" Style="{StaticResource Caption}" Margin="6,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Actions -->
+        <Grid Grid.Row="2" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="12" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="12" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Button x:Name="ScheduleButton" Style="{StaticResource ActionButton}" Click="OnSchedule">
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="40" Height="40" CornerRadius="{StaticResource Radius}" Background="{StaticResource AccentSoftBrush}">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IconSchedule}" Width="20" Height="20" />
+                    </Border>
+                    <TextBlock x:Name="ScheduleLabel" Text="קבע תזמון" VerticalAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </Button>
+
+            <Button x:Name="PauseButton" Grid.Column="2" Style="{StaticResource ActionButton}" Click="OnPauseToggle">
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="40" Height="40" CornerRadius="{StaticResource Radius}" Background="{StaticResource AccentSoftBrush}">
+                        <Path x:Name="PauseIcon" Style="{StaticResource Icon}" Data="{StaticResource IconPause}" Width="18" Height="18" />
+                    </Border>
+                    <TextBlock x:Name="PauseLabel" Text="השהה תזמון" VerticalAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </Button>
+
+            <Button x:Name="DeleteButton" Grid.Row="2" Style="{StaticResource ActionButton}" Click="OnDelete">
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="40" Height="40" CornerRadius="{StaticResource Radius}" Background="{StaticResource AccentSoftBrush}">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IconCancel}" Width="20" Height="20" />
+                    </Border>
+                    <TextBlock Text="בטל תזמון" VerticalAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </Button>
+
+            <Button x:Name="RestartButton" Grid.Row="2" Grid.Column="2" Style="{StaticResource ActionButton}" Click="OnRestartNow">
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="40" Height="40" CornerRadius="{StaticResource Radius}" Background="{StaticResource AccentSoftBrush}">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IconRestart}" Width="20" Height="20" />
+                    </Border>
+                    <TextBlock Text="הפעל מחדש עכשיו" VerticalAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </Button>
+
+            <Button x:Name="LogButton" Grid.Row="4" Grid.ColumnSpan="3" Style="{StaticResource ActionButton}" Click="OnShowLog">
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="40" Height="40" CornerRadius="{StaticResource Radius}" Background="{StaticResource AccentSoftBrush}">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IconLog}" Width="20" Height="20" />
+                    </Border>
+                    <TextBlock Text="הצג לוג" VerticalAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </Button>
+        </Grid>
+    </Grid>
+</Window>

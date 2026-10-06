@@ -1,0 +1,69 @@
+<Window x:Class="ScheduledRestart.ScheduleDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="קביעת תזמון" Width="500" SizeToContent="Height"
+        ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft" FontFamily="Segoe UI" FontSize="14"
+        Foreground="{StaticResource TextBrush}" Background="{StaticResource WindowBackground}"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <StackPanel Margin="24,16,24,22" Style="{StaticResource EnterAnimation}">
+        <TextBlock x:Name="HeaderText" Style="{StaticResource H2}" Text="קביעת תזמון" />
+
+        <TextBlock Style="{StaticResource Label}" Text="סוג תזמון" />
+        <Border Background="{StaticResource InputBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                CornerRadius="{StaticResource Radius}" Padding="3">
+            <UniformGrid Columns="4">
+                <RadioButton x:Name="TypeOnce" Style="{StaticResource Segment}" GroupName="Type" Content="חד־פעמי" Checked="OnInputChanged" />
+                <RadioButton x:Name="TypeDaily" Style="{StaticResource Segment}" GroupName="Type" Content="יומי" Checked="OnInputChanged" />
+                <RadioButton x:Name="TypeWeekly" Style="{StaticResource Segment}" GroupName="Type" Content="שבועי" Checked="OnInputChanged" />
+                <RadioButton x:Name="TypeMonthly" Style="{StaticResource Segment}" GroupName="Type" Content="חודשי" Checked="OnInputChanged" />
+            </UniformGrid>
+        </Border>
+
+        <StackPanel x:Name="OncePanel">
+            <TextBlock Style="{StaticResource Label}" Text="תאריך" />
+            <DatePicker x:Name="DateInput" Width="200" HorizontalAlignment="Left" SelectedDateFormat="Short"
+                        SelectedDateChanged="OnInputChanged" />
+        </StackPanel>
+
+        <StackPanel x:Name="WeeklyPanel">
+            <TextBlock Style="{StaticResource Label}" Text="ימים" />
+            <WrapPanel x:Name="DaysPanel" />
+        </StackPanel>
+
+        <StackPanel x:Name="MonthlyPanel">
+            <TextBlock Style="{StaticResource Label}" Text="מועד בחודש" />
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="MonthFixed" Style="{StaticResource Option}" GroupName="Month" Content="יום קבוע בחודש" Checked="OnInputChanged" />
+                <ComboBox x:Name="DayOfMonthInput" Width="84" Margin="12,0,0,0" SelectionChanged="OnDayOfMonthChanged" />
+            </StackPanel>
+            <RadioButton x:Name="MonthLast" Style="{StaticResource Option}" GroupName="Month" Content="היום האחרון בחודש" Margin="0,8,0,4" Checked="OnInputChanged" />
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="MonthLastWeekday" Style="{StaticResource Option}" GroupName="Month" Content="יום ה־" Checked="OnInputChanged" />
+                <ComboBox x:Name="WeekdayInput" Width="110" Margin="6,0,8,0" SelectionChanged="OnWeekdayChanged" />
+                <TextBlock Text="האחרון בחודש" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock x:Name="ShortMonthNote" Style="{StaticResource Caption}" Margin="28,6,0,0"
+                       Text="בחודשים קצרים יותר לא תתבצע הפעלה מחדש" />
+        </StackPanel>
+
+        <TextBlock Style="{StaticResource Label}" Text="שעה (HH:mm)" />
+        <TextBox x:Name="TimeInput" Width="120" HorizontalAlignment="Left" FlowDirection="LeftToRight"
+                 HorizontalContentAlignment="Center" MaxLength="5" TextChanged="OnInputChanged" />
+
+        <TextBlock Style="{StaticResource Label}" Text="התראה למשתמש לפני ההפעלה מחדש" />
+        <ComboBox x:Name="WarningInput" Width="160" HorizontalAlignment="Left" SelectionChanged="OnInputChanged" />
+        <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" Text="ההתראה תוצג בשעה שנקבעה, וההפעלה מחדש תתבצע בסיומה" />
+
+        <TextBlock x:Name="ErrorText" Style="{StaticResource ErrorText}" Margin="0,14,0,0" Visibility="Collapsed" />
+
+        <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="{StaticResource Radius}" Padding="14,10" Margin="0,14,0,0">
+            <TextBlock x:Name="PreviewText" Style="{StaticResource Body}" FontWeight="SemiBold" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,20,0,0">
+            <Button Content="שמור" Style="{StaticResource PrimaryButton}" IsDefault="True" Margin="0,0,10,0" Click="OnSave" />
+            <Button Content="ביטול" Style="{StaticResource SecondaryButton}" IsCancel="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

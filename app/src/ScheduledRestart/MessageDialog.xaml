@@ -1,0 +1,31 @@
+<Window x:Class="ScheduledRestart.MessageDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="תזמון הפעלה מחדש" Width="440" SizeToContent="Height"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
+        FlowDirection="RightToLeft" FontFamily="Segoe UI" FontSize="14" Foreground="{StaticResource TextBrush}">
+    <Border Margin="18" Style="{StaticResource Card}" Padding="24" Background="#1A1E26">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.55" Color="Black" />
+        </Border.Effect>
+        <StackPanel Style="{StaticResource EnterAnimation}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Width="44" Height="44" CornerRadius="22" Background="{StaticResource AccentSoftBrush}" VerticalAlignment="Top">
+                    <Path x:Name="KindIcon" Style="{StaticResource Icon}" Width="24" Height="24" />
+                </Border>
+                <TextBlock x:Name="MessageText" Grid.Column="1" Style="{StaticResource Body}" FontSize="16"
+                           Margin="16,10,0,0" VerticalAlignment="Center" LineHeight="24" />
+            </Grid>
+            <!-- Right-to-left: the primary action comes first (on the right). -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="60,24,0,0">
+                <Button x:Name="PrimaryButton" Style="{StaticResource PrimaryButton}" IsDefault="True" Margin="0,0,10,0" Click="OnPrimary" />
+                <Button x:Name="SecondaryButton" Style="{StaticResource SecondaryButton}" IsCancel="True" Click="OnSecondary" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

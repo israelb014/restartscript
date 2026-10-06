@@ -1,0 +1,101 @@
+name: App build and release
+
+on:
+  push:
+    branches: [claude/scheduled-restart-powershell-f4siku]
+    paths:
+      - 'app/**'
+      - '.github/workflows/app-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build, test and release ScheduledRestart.exe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: 1
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      VERSION: 2.0.${{ github.run_number }}
+      OUT_DIR: app\src\ScheduledRestart\bin\Release\net462
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: microsoft/setup-msbuild@v3
+
+      - name: Build Release
+        run: |
+          msbuild app\src\ScheduledRestart\ScheduledRestart.csproj /restore /nologo /v:minimal `
+            /p:Configuration=Release /p:BuildNumber=${{ github.run_number }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check release output (single exe, metadata, manifest)
+        run: |
+          $files = @(Get-ChildItem $env:OUT_DIR -Recurse -File)
+          $files | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'ScheduledRestart.exe') {
+            throw "Release output must contain only ScheduledRestart.exe, found: $($files.Name -join ', ')"
+          }
+          $exe = $files[0].FullName
+          $v = (Get-Item $exe).VersionInfo
+          $v | Format-List ProductName, FileDescription, CompanyName, LegalCopyright, FileVersion, ProductVersion | Out-String | Write-Host
+          $expected = @{ ProductName = 'Scheduled Restart'; FileDescription = 'Schedules automatic computer restarts'; CompanyName = 'IB-Fix'; FileVersion = $env:VERSION }
+          foreach ($k in $expected.Keys) {
+            if ($v.$k -ne $expected[$k]) { throw "$k is '$($v.$k)', expected '$($expected[$k])'" }
+          }
+          if (-not $v.LegalCopyright) { throw 'Copyright is missing' }
+          $text = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($exe))
+          foreach ($needle in 'requireAdministrator', 'PerMonitorV2', '{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}') {
+            if (-not $text.Contains($needle)) { throw "Embedded manifest is missing '$needle'" }
+          }
+          $asm = [System.Reflection.AssemblyName]::GetAssemblyName($exe)
+          Write-Host "Assembly: $($asm.FullName)"
+          Write-Host "Size: $([math]::Round((Get-Item $exe).Length / 1KB)) KB"
+
+      - name: Unit and integration tests
+        run: |
+          dotnet test app\tests\ScheduledRestart.Tests\ScheduledRestart.Tests.csproj -c Release --logger "console;verbosity=normal"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Safety cleanup of the test task
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $service = New-Object -ComObject Schedule.Service
+          $service.Connect()
+          try {
+            $folder = $service.GetFolder('\ScheduledRestartTest')
+            try { $folder.DeleteTask('ScheduledRestartTest', 0); Write-Host 'Leftover test task deleted.' } catch { }
+            $service.GetFolder('\').DeleteFolder('ScheduledRestartTest', 0)
+          } catch { Write-Host 'No test task left.' }
+          exit 0
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ScheduledRestart-${{ env.VERSION }}
+          path: ${{ env.OUT_DIR }}\ScheduledRestart.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:VERSION"
+          $exe = Join-Path $env:OUT_DIR 'ScheduledRestart.exe'
+          $notes = "Scheduled Restart $env:VERSION`n`nקובץ יחיד: ScheduledRestart.exe. יש להריץ במחשב Windows 10/11 או Windows Server 2016 ומעלה; בהפעלה נדרש אישור מנהל.`n`nCommit: $env:GITHUB_SHA"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe --clobber
+          } else {
+            gh release create $tag $exe --title "Scheduled Restart $env:VERSION" --notes $notes --target $env:GITHUB_SHA
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "Release: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$tag"
