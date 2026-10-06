@@ -20,7 +20,9 @@
     <FileVersion>2.0.$(BuildNumber)</FileVersion>
     <InformationalVersion>2.0.$(BuildNumber)</InformationalVersion>
     <Product>Scheduled Restart</Product>
-    <AssemblyTitle>Scheduled Restart</AssemblyTitle>
+    <!-- Windows shows AssemblyTitle as the file description. -->
+    <AssemblyTitle>Schedules automatic computer restarts</AssemblyTitle>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Description>Schedules automatic computer restarts</Description>
     <Company>IB-Fix</Company>
     <Copyright>Copyright © 2026 IB-Fix</Copyright>
