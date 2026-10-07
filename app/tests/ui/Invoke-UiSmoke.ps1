@@ -69,9 +69,17 @@ function Invoke-Element($el) {
     $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
 
+$script:MainElement = $null
+
+# Owned (modal) windows are exposed as children of their owner window, not of the desktop root.
 function Get-ProcessWindows([int]$processId) {
     $cond = New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $processId)
-    return @($A::RootElement.FindAll($Scope::Children, $cond))
+    $windows = @($A::RootElement.FindAll($Scope::Children, $cond))
+    if ($script:MainElement) {
+        $isWindow = New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+        try { $windows += @($script:MainElement.FindAll($Scope::Children, $isWindow)) } catch { }
+    }
+    return $windows
 }
 
 function Wait-NewWindow([int]$processId, [int[]]$known, [int]$timeoutSec = 15) {
@@ -147,11 +155,26 @@ function Remove-SmokeForeignTask {
     } catch { }
 }
 
+$WinlogonKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+
+# The taskbar (explorer.exe) resets the work area, so it is stopped for the limited pass and restarted after.
+function Stop-Shell {
+    Set-ItemProperty -Path $WinlogonKey -Name AutoRestartShell -Value 0 -Type DWord
+    Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
+}
+
+function Start-Shell {
+    Set-ItemProperty -Path $WinlogonKey -Name AutoRestartShell -Value 1 -Type DWord
+    if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
+}
+
 function Invoke-Pass([string]$label, $limit) {
     Write-Result "=== $label ==="
     $original = [SmokeNative]::GetWorkArea()
     $workArea = $null
     if ($limit) {
+        Stop-Shell
         $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
         $r = New-Object SmokeNative+RECT
         $r.Left = 0; $r.Top = 0
@@ -159,6 +182,10 @@ function Invoke-Pass([string]$label, $limit) {
         if (-not [SmokeNative]::SetWorkArea($r)) { Write-Result '  WARN: could not set work area' }
         $workArea = [SmokeNative]::GetWorkArea()
         Write-Result ("  work area limited to {0}x{1}" -f ($workArea.Right - $workArea.Left), ($workArea.Bottom - $workArea.Top))
+        if (($workArea.Bottom - $workArea.Top) -gt $limit[1]) {
+            Write-Result '  FAIL: the work area could not be limited'
+            $script:failures++
+        }
     }
     $proc = $null
     try {
@@ -167,6 +194,7 @@ function Invoke-Pass([string]$label, $limit) {
         while ($proc.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500; $proc.Refresh() }
         if ($proc.MainWindowHandle -eq 0) { throw 'Main window did not appear' }
         $main = $A::FromHandle($proc.MainWindowHandle)
+        $script:MainElement = $main
         $null = Find-ById $main 'ForeignShowButton' 30   # wait for the background scan to show the strip
         Start-Sleep -Milliseconds 800
         $rect = $main.Current.BoundingRectangle
@@ -188,7 +216,10 @@ function Invoke-Pass([string]$label, $limit) {
         try { Save-Shot (New-Object System.Windows.Rect 0, 0, ([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width), ([System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height)) "$label-error-screen.png" } catch { }
     } finally {
         if ($proc -and -not $proc.HasExited) { $proc.Kill(); $proc.WaitForExit(10000) | Out-Null }
-        if ($limit) { [SmokeNative]::SetWorkArea($original) | Out-Null }
+        if ($limit) {
+            [SmokeNative]::SetWorkArea($original) | Out-Null
+            Start-Shell
+        }
     }
 }
 
