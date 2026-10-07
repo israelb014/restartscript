@@ -17,6 +17,7 @@ namespace ScheduledRestart
 
         internal static RestartLog Log { get; private set; }
         internal static ScheduleManager Manager { get; private set; }
+        internal static ForeignTaskService Foreign { get; private set; }
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -37,6 +38,7 @@ namespace ScheduledRestart
 
             Log = new RestartLog(AppConstants.LogFile, AppConstants.EventSource);
             Manager = ScheduleManager.CreateDefault(Log);
+            Foreign = ForeignTaskService.CreateDefault(Log);
 
             DispatcherUnhandledException += OnDispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;

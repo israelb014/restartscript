@@ -7,6 +7,7 @@
         FlowDirection="RightToLeft" FontFamily="Segoe UI" FontSize="14"
         Foreground="{StaticResource TextBrush}" Background="{StaticResource WindowBackground}"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
     <StackPanel Margin="24,14,24,8" Style="{StaticResource EnterAnimation}">
         <TextBlock x:Name="HeaderText" Style="{StaticResource H2}" Text="קביעת תזמון" />
 
@@ -51,6 +52,8 @@
         <TextBlock Style="{StaticResource Label}" Text="שעה (HH:mm)" />
         <TextBox x:Name="TimeInput" Width="120" HorizontalAlignment="Left" FlowDirection="LeftToRight"
                  HorizontalContentAlignment="Center" MaxLength="5" TextChanged="OnInputChanged" />
+        <TextBlock x:Name="ClockNote" Style="{StaticResource Caption}" Margin="0,6,0,0" Foreground="{StaticResource WarningBrush}"
+                   Visibility="Collapsed" Text="בלילות של החלפת שעון ייתכן שההפעלה תדולג או תתבצע פעמיים." />
 
         <TextBlock Style="{StaticResource Label}" Text="התראה למשתמש לפני ההפעלה מחדש" />
         <ComboBox x:Name="WarningInput" Width="160" HorizontalAlignment="Left" SelectionChanged="OnInputChanged" />
@@ -64,9 +67,10 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,20,0,0">
             <Button Content="שמור" Style="{StaticResource PrimaryButton}" IsDefault="True" Margin="0,0,10,0" Click="OnSave" />
-            <Button Content="ביטול" Style="{StaticResource SecondaryButton}" IsCancel="True" />
+            <Button x:Name="CancelButton" Content="ביטול" Style="{StaticResource SecondaryButton}" IsCancel="True" />
         </StackPanel>
 
         <local:SignatureLine Margin="0,14,0,0" />
     </StackPanel>
+    </ScrollViewer>
 </Window>

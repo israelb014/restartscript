@@ -18,6 +18,7 @@ namespace ScheduledRestart
         internal LogWindow(RestartLog log)
         {
             InitializeComponent();
+            WindowFit.Apply(this);
             _log = log;
             PathText.Text = log.Path;
             SourceInitialized += (s, e) => NativeMethods.UseDarkTitleBar(this);

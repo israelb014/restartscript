@@ -1,0 +1,93 @@
+name: Licensed build
+
+# Manual: builds a copy of ScheduledRestart.exe with "מורשה ל: <name>" in the About window.
+# The inputs reach MSBuild only as environment variables (MSBuild reads them as properties), never on a
+# command line, so Hebrew and quote characters such as בע"מ arrive intact. No release is created.
+on:
+  workflow_dispatch:
+    inputs:
+      licensee_name:
+        description: 'Licensee name (Hebrew and quotes allowed)'
+        required: true
+        type: string
+      license_id:
+        description: 'License ID'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Licensed ScheduledRestart.exe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: powershell
+    env:
+      DOTNET_NOLOGO: 1
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      LicenseeName: ${{ inputs.licensee_name }}
+      LicenseId: ${{ inputs.license_id }}
+      OUT_DIR: app\src\ScheduledRestart\bin\Release\net462
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: microsoft/setup-msbuild@v3
+
+      - name: Version of the latest release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $tag = gh release view --json tagName --jq .tagName 2>$null
+          $build = 0
+          if ($LASTEXITCODE -eq 0 -and $tag -match '^v2\.0\.(\d+)$') { $build = [int]$Matches[1] }
+          Write-Host "Latest release: $tag -> build number $build"
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "build=$build`n", (New-Object Text.UTF8Encoding $false))
+          exit 0
+
+      - name: Build Release (licensed)
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:LicenseeName)) { throw 'licensee_name is empty' }
+          msbuild app\src\ScheduledRestart\ScheduledRestart.csproj /restore /nologo /v:minimal `
+            /p:Configuration=Release /p:BuildNumber=${{ steps.version.outputs.build }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check output and licensee metadata
+        run: |
+          $files = @(Get-ChildItem $env:OUT_DIR -Recurse -File)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'ScheduledRestart.exe') {
+            throw "Release output must contain only ScheduledRestart.exe, found: $($files.Name -join ', ')"
+          }
+          (Get-Item $files[0].FullName).VersionInfo | Format-List ProductName, FileVersion, LegalCopyright | Out-String | Write-Host
+          & app\tools\Test-LicenseeMetadata.ps1 -Exe $files[0].FullName
+          exit $LASTEXITCODE
+
+      - name: Unit and integration tests
+        run: |
+          dotnet test app\tests\ScheduledRestart.Tests\ScheduledRestart.Tests.csproj -c Release --logger "console;verbosity=minimal"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Safety cleanup of test tasks
+        if: always()
+        run: |
+          & app\tests\Remove-TestTasks.ps1
+          exit 0
+
+      - name: Artifact name
+        id: artifact
+        run: |
+          $safe = ($env:LicenseId -replace '[\\/:*?"<>|\r\n\t]', '_').Trim()
+          if ($safe.Length -eq 0) { $safe = 'unnamed' }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "name=ScheduledRestart-$safe`n", (New-Object Text.UTF8Encoding $false))
+
+      - name: Upload licensed exe
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ env.OUT_DIR }}\ScheduledRestart.exe
+          if-no-files-found: error

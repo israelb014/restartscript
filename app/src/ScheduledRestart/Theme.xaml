@@ -18,6 +18,8 @@
     <SolidColorBrush x:Key="TextDimBrush" Color="#A3ABB8" />
     <SolidColorBrush x:Key="TextFaintBrush" Color="#6B7380" />
     <SolidColorBrush x:Key="ErrorBrush" Color="#FF6B6B" />
+    <SolidColorBrush x:Key="WarningBrush" Color="#F5B83D" />
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="#1FF5B83D" />
 
     <!-- Subtle radial glow behind the content -->
     <RadialGradientBrush x:Key="WindowBackground" Center="0.5,0" GradientOrigin="0.5,0" RadiusX="0.95" RadiusY="0.55">

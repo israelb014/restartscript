@@ -40,8 +40,19 @@
 
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Management" />
     <!-- Build-time only: .NET Framework 4.6.2 reference assemblies. Nothing ships with the exe. -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!--
+    Licensee, embedded as assembly metadata. Normally empty (demo copy). The licensed workflow sets the
+    LicenseeName / LicenseId environment variables, which MSBuild reads as properties, so values with
+    Hebrew or quote characters never pass through a command line.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="LicenseeName" Value="$(LicenseeName)" />
+    <AssemblyMetadata Include="LicenseId" Value="$(LicenseId)" />
   </ItemGroup>
 
 </Project>

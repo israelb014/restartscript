@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              HorizontalAlignment="Center">
     <!-- Maker's signature: muted, small, never competing with the UI. Opens the About window. -->
-    <Button Click="OnClick" Cursor="Hand" Focusable="True" ToolTip="אודות" AutomationProperties.Name="אודות">
+    <Button x:Name="SignatureButton" Click="OnClick" Cursor="Hand" Focusable="True" ToolTip="אודות" AutomationProperties.Name="אודות">
         <Button.Template>
             <ControlTemplate TargetType="Button">
                 <Border x:Name="Root" Background="Transparent" Padding="8,3" Opacity="0.55">

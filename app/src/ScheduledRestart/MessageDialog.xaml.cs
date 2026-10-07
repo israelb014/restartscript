@@ -18,6 +18,7 @@ namespace ScheduledRestart
         private MessageDialog(string message, MessageKind kind, string primary, string secondary)
         {
             InitializeComponent();
+            WindowFit.Apply(this);
             MessageText.Text = message;
             PrimaryButton.Content = primary;
             if (secondary == null)

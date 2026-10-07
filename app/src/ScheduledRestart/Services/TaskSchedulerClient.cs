@@ -1,17 +1,33 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 
 namespace ScheduledRestart.Services
 {
-    /// <summary>State of the registered task as reported by Task Scheduler.</summary>
+    /// <summary>State of a registered task as reported by Task Scheduler.</summary>
     internal sealed class RegisteredTaskState
     {
+        public string Path { get; set; }
+        public string Name { get; set; }
         public string Xml { get; set; }
         public bool Enabled { get; set; }
         public DateTime? NextRun { get; set; }
         public DateTime? LastRun { get; set; }
         public int LastResult { get; set; }
+    }
+
+    internal sealed class TaskEnumeration
+    {
+        public TaskEnumeration()
+        {
+            Tasks = new List<RegisteredTaskState>();
+        }
+
+        public List<RegisteredTaskState> Tasks { get; private set; }
+
+        /// <summary>Tasks or folders that could not be read (usually permissions).</summary>
+        public int Unreadable { get; set; }
     }
 
     /// <summary>Minimal late-bound wrapper around the Task Scheduler 2.0 COM API (Schedule.Service).</summary>
@@ -35,29 +51,23 @@ namespace ScheduledRestart.Services
             get { return "\\" + FolderName; }
         }
 
+        /// <summary>Full path of the task this client manages, e.g. \ScheduledRestart\ScheduledRestart.</summary>
+        public string TaskPath
+        {
+            get { return FolderPath + "\\" + TaskName; }
+        }
+
         /// <summary>Returns the task state, or null when the task does not exist.</summary>
         public RegisteredTaskState GetState()
         {
-            return WithTask(task =>
-            {
-                var state = new RegisteredTaskState
-                {
-                    Xml = (string)task.Xml,
-                    Enabled = (bool)task.Enabled,
-                    LastResult = (int)task.LastTaskResult
-                };
-                DateTime next = (DateTime)task.NextRunTime;
-                DateTime last = (DateTime)task.LastRunTime;
-                if (next.Year >= 2000) state.NextRun = next;
-                if (last.Year >= 2000) state.LastRun = last;
-                return state;
-            });
+            return GetStateAt(TaskPath);
         }
 
         /// <summary>Returns the task XML, or null when the task does not exist.</summary>
         public string GetTaskXml()
         {
-            return WithTask(task => (string)task.Xml);
+            RegisteredTaskState state = GetStateAt(TaskPath);
+            return state == null ? null : state.Xml;
         }
 
         /// <summary>Creates or replaces the task from XML, running as SYSTEM.</summary>
@@ -88,12 +98,7 @@ namespace ScheduledRestart.Services
         /// <summary>Enables or disables (pauses) the task.</summary>
         public void SetEnabled(bool enabled)
         {
-            bool found = WithTask(task =>
-            {
-                task.Enabled = enabled;
-                return true;
-            });
-            if (!found) throw new InvalidOperationException("המשימה לא נמצאה.");
+            SetEnabledAt(TaskPath, enabled);
         }
 
         /// <summary>Deletes the task and removes the task folder when it is empty.</summary>
@@ -132,16 +137,165 @@ namespace ScheduledRestart.Services
             }
         }
 
-        private T WithTask<T>(Func<dynamic, T> action)
+        // ---- Any task, by full path ----
+
+        /// <summary>State of the task at <paramref name="path"/>, or null when it does not exist.</summary>
+        public static RegisteredTaskState GetStateAt(string path)
         {
+            return WithTaskAt(path, ReadState);
+        }
+
+        public static void SetEnabledAt(string path, bool enabled)
+        {
+            bool found = WithTaskAt(path, task =>
+            {
+                task.Enabled = enabled;
+                return true;
+            });
+            if (!found) throw new InvalidOperationException("המשימה לא נמצאה.");
+        }
+
+        /// <summary>Deletes the task at <paramref name="path"/>; its folder is left in place.</summary>
+        public static void DeleteAt(string path)
+        {
+            string parent, name;
+            SplitPath(path, out parent, out name);
+            dynamic service = null, folder = null;
+            try
+            {
+                service = Connect();
+                folder = service.GetFolder(parent);
+                folder.DeleteTask(name, 0);
+            }
+            finally
+            {
+                Release(folder, service);
+            }
+        }
+
+        /// <summary>
+        /// Every task in <paramref name="rootFolder"/> and below, including hidden ones, except folders
+        /// for which <paramref name="skipFolder"/> returns true. Unreadable tasks and folders are counted.
+        /// </summary>
+        public static TaskEnumeration Enumerate(string rootFolder, Func<string, bool> skipFolder)
+        {
+            var result = new TaskEnumeration();
+            dynamic service = null, root = null;
+            try
+            {
+                service = Connect();
+                try
+                {
+                    root = service.GetFolder(rootFolder);
+                }
+                catch (Exception ex) when (IsNotFound(ex))
+                {
+                    return result;
+                }
+                Walk(root, skipFolder, result, 0);
+            }
+            finally
+            {
+                Release(root, service);
+            }
+            return result;
+        }
+
+        private static void Walk(dynamic folder, Func<string, bool> skipFolder, TaskEnumeration result, int depth)
+        {
+            if (depth > 32) return;
+            dynamic tasks = null, folders = null;
+            try
+            {
+                try
+                {
+                    tasks = folder.GetTasks(TaskEnumHidden);
+                    int count = (int)tasks.Count;
+                    for (int i = 1; i <= count; i++)
+                    {
+                        dynamic task = null;
+                        try
+                        {
+                            task = tasks.Item(i);
+                            result.Tasks.Add(ReadState(task));
+                        }
+                        catch (Exception ex) when (IsReadFailure(ex))
+                        {
+                            result.Unreadable++;
+                        }
+                        finally
+                        {
+                            Release(task);
+                        }
+                    }
+                }
+                catch (Exception ex) when (IsReadFailure(ex))
+                {
+                    result.Unreadable++;
+                }
+
+                try
+                {
+                    folders = folder.GetFolders(0);
+                    int count = (int)folders.Count;
+                    for (int i = 1; i <= count; i++)
+                    {
+                        dynamic sub = null;
+                        try
+                        {
+                            sub = folders.Item(i);
+                            if (!skipFolder((string)sub.Path)) Walk(sub, skipFolder, result, depth + 1);
+                        }
+                        catch (Exception ex) when (IsReadFailure(ex))
+                        {
+                            result.Unreadable++;
+                        }
+                        finally
+                        {
+                            Release(sub);
+                        }
+                    }
+                }
+                catch (Exception ex) when (IsReadFailure(ex))
+                {
+                    result.Unreadable++;
+                }
+            }
+            finally
+            {
+                Release(folders, tasks);
+            }
+        }
+
+        private static RegisteredTaskState ReadState(dynamic task)
+        {
+            var state = new RegisteredTaskState
+            {
+                Path = (string)task.Path,
+                Name = (string)task.Name,
+                Xml = (string)task.Xml,
+                Enabled = (bool)task.Enabled,
+                LastResult = (int)task.LastTaskResult
+            };
+            DateTime next = (DateTime)task.NextRunTime;
+            DateTime last = (DateTime)task.LastRunTime;
+            if (next.Year >= 2000) state.NextRun = next;
+            if (last.Year >= 2000) state.LastRun = last;
+            return state;
+        }
+
+        private static T WithTaskAt<T>(string path, Func<dynamic, T> action)
+        {
+            string parent, name;
+            SplitPath(path, out parent, out name);
             dynamic service = null, folder = null, task = null;
             try
             {
                 service = Connect();
                 try
                 {
-                    folder = service.GetFolder(FolderPath);
-                    task = folder.GetTask(TaskName);
+                    folder = service.GetFolder(parent);
+                    task = folder.GetTask(name);
                 }
                 catch (Exception ex) when (IsNotFound(ex))
                 {
@@ -155,6 +309,13 @@ namespace ScheduledRestart.Services
             }
         }
 
+        private static void SplitPath(string path, out string parent, out string name)
+        {
+            int slash = path.LastIndexOf('\\');
+            parent = slash <= 0 ? "\\" : path.Substring(0, slash);
+            name = path.Substring(slash + 1);
+        }
+
         private static dynamic Connect()
         {
             Type type = Type.GetTypeFromProgID("Schedule.Service", true);
@@ -163,7 +324,13 @@ namespace ScheduledRestart.Services
             return service;
         }
 
-        private static bool IsNotFound(Exception ex)
+        /// <summary>Any failure reading one task or folder: it is skipped and counted, never fatal.</summary>
+        private static bool IsReadFailure(Exception ex)
+        {
+            return !(ex is OutOfMemoryException || ex is StackOverflowException);
+        }
+
+        internal static bool IsNotFound(Exception ex)
         {
             for (Exception e = ex; e != null; e = e.InnerException)
             {

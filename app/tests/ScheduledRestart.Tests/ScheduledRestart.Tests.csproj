@@ -23,10 +23,12 @@
   <ItemGroup Condition="'$(IsWindows)' == 'true'">
     <Compile Include="..\..\src\ScheduledRestart\Services\*.cs" Link="Services\%(Filename)%(Extension)" />
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Management" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsWindows)' != 'true'">
     <Compile Remove="IntegrationTests.cs" />
+    <Compile Remove="ForeignIntegrationTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

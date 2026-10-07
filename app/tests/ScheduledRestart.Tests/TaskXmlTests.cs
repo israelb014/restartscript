@@ -36,7 +36,7 @@ namespace ScheduledRestart.Tests
             Assert.AreEqual("S-1-5-18", info.UserId);
             Assert.AreEqual("HighestAvailable", info.RunLevel);
             Assert.IsTrue(info.Enabled);
-            Assert.IsTrue(info.WakeToRun);
+            Assert.IsFalse(info.WakeToRun);
             Assert.IsFalse(info.StartWhenAvailable);
             Assert.AreEqual(AppConstants.ShutdownExe, info.Command);
             Assert.AreEqual(TaskXml.BuildShutdownArguments(schedule.WarningMinutes), info.Arguments);
@@ -58,7 +58,7 @@ namespace ScheduledRestart.Tests
             StringAssert.Contains(xml, "<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>");
             StringAssert.Contains(xml, "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>");
             StringAssert.Contains(xml, "<StartWhenAvailable>false</StartWhenAvailable>");
-            StringAssert.Contains(xml, "<WakeToRun>true</WakeToRun>");
+            StringAssert.Contains(xml, "<WakeToRun>false</WakeToRun>");
             StringAssert.Contains(xml, "<ExecutionTimeLimit>PT10M</ExecutionTimeLimit>");
             StringAssert.Contains(xml, "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>");
             StringAssert.Contains(xml, "<StartBoundary>2026-10-06T03:00:00</StartBoundary>");

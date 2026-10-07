@@ -57,31 +57,58 @@ jobs:
           $asm = [System.Reflection.AssemblyName]::GetAssemblyName($exe)
           Write-Host "Assembly: $($asm.FullName)"
           Write-Host "Size: $([math]::Round((Get-Item $exe).Length / 1KB)) KB"
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\release" -Force | Out-Null
+          Copy-Item $exe "$env:RUNNER_TEMP\release\ScheduledRestart.exe"
+
+      - name: Push builds are unlicensed
+        shell: powershell
+        run: |
+          & app\tools\Test-LicenseeMetadata.ps1 -Exe "$env:RUNNER_TEMP\release\ScheduledRestart.exe"
+          exit $LASTEXITCODE
+
+      - name: Licensee metadata survives Hebrew and quotes
+        shell: powershell
+        env:
+          LicenseeName: 'חברת בדיקה "אלפא" בע"מ'
+          LicenseId: 'QA-001 "בדיקה"'
+        run: |
+          msbuild app\src\ScheduledRestart\ScheduledRestart.csproj /restore /nologo /v:minimal `
+            /p:Configuration=Release /p:BuildNumber=${{ github.run_number }} "/p:OutDir=$env:RUNNER_TEMP\licensecheck\"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & app\tools\Test-LicenseeMetadata.ps1 -Exe "$env:RUNNER_TEMP\licensecheck\ScheduledRestart.exe"
+          exit $LASTEXITCODE
 
       - name: Unit and integration tests
         run: |
           dotnet test app\tests\ScheduledRestart.Tests\ScheduledRestart.Tests.csproj -c Release --logger "console;verbosity=normal"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Safety cleanup of the test task
+      - name: UI smoke test (normal size and 1366x768 at 125%)
+        shell: powershell
+        run: |
+          & app\tests\ui\Invoke-UiSmoke.ps1 -Exe "$env:RUNNER_TEMP\release\ScheduledRestart.exe" -OutDir "$env:RUNNER_TEMP\screenshots"
+          exit $LASTEXITCODE
+
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-screenshots-${{ env.VERSION }}
+          path: ${{ runner.temp }}\screenshots
+          if-no-files-found: warn
+
+      - name: Safety cleanup of test tasks
         if: always()
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Continue'
-          $service = New-Object -ComObject Schedule.Service
-          $service.Connect()
-          try {
-            $folder = $service.GetFolder('\ScheduledRestartTest')
-            try { $folder.DeleteTask('ScheduledRestartTest', 0); Write-Host 'Leftover test task deleted.' } catch { }
-            $service.GetFolder('\').DeleteFolder('ScheduledRestartTest', 0)
-          } catch { Write-Host 'No test task left.' }
+          & app\tests\Remove-TestTasks.ps1
           exit 0
 
       - name: Upload exe artifact
         uses: actions/upload-artifact@v7
         with:
           name: ScheduledRestart-${{ env.VERSION }}
-          path: ${{ env.OUT_DIR }}\ScheduledRestart.exe
+          path: ${{ runner.temp }}\release\ScheduledRestart.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -89,7 +116,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v$env:VERSION"
-          $exe = Join-Path $env:OUT_DIR 'ScheduledRestart.exe'
+          $exe = Join-Path $env:RUNNER_TEMP 'release\ScheduledRestart.exe'
           $notes = "Scheduled Restart $env:VERSION`n`nקובץ יחיד: ScheduledRestart.exe. יש להריץ במחשב Windows 10/11 או Windows Server 2016 ומעלה; בהפעלה נדרש אישור מנהל.`n`nCommit: $env:GITHUB_SHA"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {

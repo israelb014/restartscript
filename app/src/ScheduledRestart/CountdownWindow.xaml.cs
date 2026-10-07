@@ -22,6 +22,7 @@ namespace ScheduledRestart
         public CountdownWindow(int seconds)
         {
             InitializeComponent();
+            WindowFit.Apply(this);
             _totalSeconds = seconds;
             _end = DateTime.Now.AddSeconds(seconds);
             _timer.Tick += (s, e) => UpdateView();

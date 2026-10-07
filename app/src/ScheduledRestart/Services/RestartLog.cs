@@ -71,6 +71,7 @@ namespace ScheduledRestart.Services
             {
                 string dir = System.IO.Path.GetDirectoryName(_path);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                Core.LogRotation.RotateIfNeeded(_path);
                 string line = string.Format(CultureInfo.InvariantCulture, "{0:yyyy-MM-dd HH:mm:ss} | {1} | {2}{3}",
                     DateTime.Now, CurrentUser, message.Replace("\r", " ").Replace("\n", " "), Environment.NewLine);
                 File.AppendAllText(_path, line, Utf8Bom);

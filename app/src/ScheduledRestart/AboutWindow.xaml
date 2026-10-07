@@ -9,6 +9,7 @@
         <Border.Effect>
             <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.55" Color="Black" />
         </Border.Effect>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
         <StackPanel Style="{StaticResource EnterAnimation}">
             <TextBlock Style="{StaticResource Caption}" Text="אודות" HorizontalAlignment="Center" />
             <Border Width="72" Height="72" CornerRadius="{StaticResource Radius}" Background="{StaticResource AccentSoftBrush}"
@@ -37,10 +38,21 @@
                 </Button.Template>
             </Button>
 
+            <Border x:Name="LicenseBox" Margin="0,16,0,0" Padding="14,10" CornerRadius="{StaticResource Radius}"
+                    Background="{StaticResource AccentSoftBrush}" BorderBrush="#553D8BFD" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock x:Name="LicenseText" Style="{StaticResource Body}" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+                    <TextBlock x:Name="LicenseIdText" Style="{StaticResource Caption}" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,2,0,0" />
+                </StackPanel>
+            </Border>
+
             <TextBlock Style="{StaticResource Caption}" Text="© 2026 ישראל בורוכוב. כל הזכויות שמורות." HorizontalAlignment="Center"
-                       TextAlignment="Center" Margin="0,16,0,0" />
-            <Button Content="סגור" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Center" Margin="0,20,0,0"
+                       TextAlignment="Center" Margin="0,14,0,0" />
+            <Button x:Name="CloseButton" Content="סגור" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Center" Margin="0,18,0,0"
                     IsDefault="True" IsCancel="True" Click="OnClose" />
+            <Button x:Name="RemoveAllButton" Content="הסר הכל מהמחשב הזה" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Center"
+                    Margin="0,10,0,0" Height="34" FontSize="13" Click="OnRemoveAll" />
         </StackPanel>
+        </ScrollViewer>
     </Border>
 </Window>

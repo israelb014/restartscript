@@ -18,6 +18,7 @@ namespace ScheduledRestart
         public ScheduleDialog(RestartSchedule current, bool taskExists)
         {
             InitializeComponent();
+            WindowFit.Apply(this);
             _taskExists = taskExists;
             SourceInitialized += (s, e) => NativeMethods.UseDarkTitleBar(this);
             HeaderText.Text = Title = taskExists ? "שינוי תזמון" : "קביעת תזמון";
@@ -111,6 +112,12 @@ namespace ScheduledRestart
             MonthlyPanel.Visibility = TypeMonthly.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             ShortMonthNote.Visibility = MonthFixed.IsChecked == true && DayOfMonthInput.SelectedIndex >= 28
                 ? Visibility.Visible : Visibility.Collapsed;
+
+            DateTime typed;
+            bool nightTime = DateTime.TryParseExact((TimeInput.Text ?? string.Empty).Trim(), new[] { "HH:mm", "H:mm" },
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out typed)
+                && typed.Hour >= 1 && typed.Hour < 3;
+            ClockNote.Visibility = nightTime ? Visibility.Visible : Visibility.Collapsed;
 
             RestartSchedule schedule;
             string error;

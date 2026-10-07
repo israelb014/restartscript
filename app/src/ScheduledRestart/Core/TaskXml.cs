@@ -19,6 +19,8 @@ namespace ScheduledRestart.Core
         public string Command { get; internal set; }
         public string Arguments { get; internal set; }
         public bool WakeToRun { get; internal set; }
+        public DateTime? RegistrationDate { get; internal set; }
+        public DateTime? StartBoundary { get; internal set; }
         public bool StartWhenAvailable { get; internal set; }
 
         public bool IsRecognized
@@ -67,6 +69,12 @@ namespace ScheduledRestart.Core
         /// <summary>Builds the full task definition XML for a schedule.</summary>
         public static string Build(RestartSchedule schedule, string author, string description, DateTime today)
         {
+            return Build(schedule, author, description, today, DateTime.Now);
+        }
+
+        /// <param name="registered">Written to RegistrationInfo/Date; used to judge missed runs.</param>
+        public static string Build(RestartSchedule schedule, string author, string description, DateTime today, DateTime registered)
+        {
             var settings = new XmlWriterSettings { Indent = true, OmitXmlDeclaration = false };
             var sb = new StringBuilder();
             using (var sw = new StringWriter(sb, CultureInfo.InvariantCulture))
@@ -77,6 +85,7 @@ namespace ScheduledRestart.Core
                 w.WriteAttributeString("version", "1.2");
 
                 w.WriteStartElement("RegistrationInfo", Namespace);
+                w.WriteElementString("Date", Namespace, registered.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture));
                 w.WriteElementString("Author", Namespace, author);
                 w.WriteElementString("Description", Namespace, description);
                 w.WriteEndElement();
@@ -101,7 +110,8 @@ namespace ScheduledRestart.Core
                 w.WriteElementString("AllowStartOnDemand", Namespace, "true");
                 w.WriteElementString("Enabled", Namespace, "true");
                 w.WriteElementString("Hidden", Namespace, "false");
-                w.WriteElementString("WakeToRun", Namespace, "true");
+                // A restart never fires late or wakes the machine: missed runs are skipped.
+                w.WriteElementString("WakeToRun", Namespace, "false");
                 w.WriteElementString("ExecutionTimeLimit", Namespace, "PT10M");
                 w.WriteEndElement();
 
@@ -186,7 +196,7 @@ namespace ScheduledRestart.Core
         /// <summary>Parses task XML written by this app, by Set-ScheduledRestart.ps1 or by Task Scheduler itself.</summary>
         public static TaskXmlInfo Parse(string xml)
         {
-            var doc = new XmlDocument();
+            var doc = new XmlDocument { XmlResolver = null };
             doc.LoadXml(xml);
             var ns = new XmlNamespaceManager(doc.NameTable);
             ns.AddNamespace("t", Namespace);
@@ -199,6 +209,9 @@ namespace ScheduledRestart.Core
                 WakeToRun = ReadBool(doc.SelectSingleNode("/t:Task/t:Settings/t:WakeToRun", ns), false),
                 StartWhenAvailable = ReadBool(doc.SelectSingleNode("/t:Task/t:Settings/t:StartWhenAvailable", ns), false)
             };
+            DateTime parsed;
+            if (TryParseBoundary(Text(doc.SelectSingleNode("/t:Task/t:RegistrationInfo/t:Date", ns)), out parsed)) info.RegistrationDate = parsed;
+            if (TryParseBoundary(Text(doc.SelectSingleNode("/t:Task/t:Triggers/*/t:StartBoundary", ns)), out parsed)) info.StartBoundary = parsed;
 
             XmlNodeList execs = doc.SelectNodes("/t:Task/t:Actions/t:Exec", ns);
             if (execs.Count == 1)
@@ -221,6 +234,61 @@ namespace ScheduledRestart.Core
             if (list.Length != 1) return info;
             info.Schedule = ParseTrigger(list[0], ns, warning);
             return info;
+        }
+
+        /// <summary>The single trigger as an app schedule (ignoring actions), or null. Never throws.</summary>
+        public static RestartSchedule TryParseSchedule(string xml)
+        {
+            try
+            {
+                XmlNamespaceManager ns;
+                XmlElement[] triggers = ReadTriggers(xml, out ns);
+                return triggers.Length == 1 ? ParseTrigger(triggers[0], ns, 0) : null;
+            }
+            catch (Exception ex) when (ex is XmlException || ex is ArgumentException || ex is FormatException || ex is System.Xml.XPath.XPathException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Hebrew description of a task's triggers, for any task. Never throws.</summary>
+        public static string DescribeTriggers(string xml)
+        {
+            try
+            {
+                XmlNamespaceManager ns;
+                XmlElement[] triggers = ReadTriggers(xml, out ns);
+                if (triggers.Length == 0) return "ללא טריגר";
+                if (triggers.Length > 1) return "מספר טריגרים";
+                RestartSchedule schedule = ParseTrigger(triggers[0], ns, 0);
+                if (schedule != null) return HebrewText.Describe(schedule);
+                switch (triggers[0].LocalName)
+                {
+                    case "BootTrigger": return "בכל הפעלת מחשב";
+                    case "LogonTrigger": return "בכניסת משתמש";
+                    case "IdleTrigger": return "כשהמחשב במצב סרק";
+                    case "EventTrigger": return "בעת אירוע ביומן האירועים";
+                    case "RegistrationTrigger": return "בעת יצירת המשימה או עדכונה";
+                    case "SessionStateChangeTrigger": return "בשינוי מצב התחברות";
+                    case "TimeTrigger": return "חד־פעמי עם חזרה";
+                    case "CalendarTrigger": return "תזמון לוח שנה מותאם";
+                    default: return "טריגר לא מוכר";
+                }
+            }
+            catch (Exception ex) when (ex is XmlException || ex is ArgumentException || ex is FormatException || ex is System.Xml.XPath.XPathException)
+            {
+                return "לא ניתן לקרוא את הטריגר";
+            }
+        }
+
+        private static XmlElement[] ReadTriggers(string xml, out XmlNamespaceManager ns)
+        {
+            var doc = new XmlDocument { XmlResolver = null };
+            doc.LoadXml(xml);
+            ns = new XmlNamespaceManager(doc.NameTable);
+            ns.AddNamespace("t", Namespace);
+            XmlNode triggers = doc.SelectSingleNode("/t:Task/t:Triggers", ns);
+            return triggers == null ? new XmlElement[0] : triggers.ChildNodes.OfType<XmlElement>().ToArray();
         }
 
         private static RestartSchedule ParseTrigger(XmlElement trigger, XmlNamespaceManager ns, int warning)

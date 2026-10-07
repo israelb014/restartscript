@@ -9,6 +9,7 @@
         <Border.Effect>
             <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.55" Color="Black" />
         </Border.Effect>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
         <StackPanel Style="{StaticResource EnterAnimation}">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -27,5 +28,6 @@
                 <Button x:Name="SecondaryButton" Style="{StaticResource SecondaryButton}" IsCancel="True" Click="OnSecondary" />
             </StackPanel>
         </StackPanel>
+        </ScrollViewer>
     </Border>
 </Window>

@@ -23,6 +23,9 @@ namespace ScheduledRestart.Services
         public DateTime? NextRun { get; set; }
         public DateTime? LastRun { get; set; }
         public int LastResult { get; set; }
+
+        /// <summary>The latest expected run did not happen (machine off or asleep).</summary>
+        public bool Missed { get; set; }
     }
 
     internal enum SaveOutcome
@@ -58,6 +61,11 @@ namespace ScheduledRestart.Services
             _backupPath = backupPath;
         }
 
+        internal TaskSchedulerClient Client
+        {
+            get { return _client; }
+        }
+
         public static ScheduleManager CreateDefault(RestartLog log)
         {
             return new ScheduleManager(new TaskSchedulerClient(AppConstants.TaskFolderName, AppConstants.TaskName), log, AppConstants.BackupFile);
@@ -69,7 +77,13 @@ namespace ScheduledRestart.Services
             if (state == null) return new ScheduleStatus { Presence = TaskPresence.None };
 
             RestartSchedule schedule = null;
-            try { schedule = TaskXml.Parse(state.Xml).Schedule; }
+            DateTime? registered = null;
+            try
+            {
+                TaskXmlInfo info = TaskXml.Parse(state.Xml);
+                schedule = info.Schedule;
+                registered = info.RegistrationDate ?? info.StartBoundary;
+            }
             catch (System.Xml.XmlException) { }
 
             TaskPresence presence = schedule == null ? TaskPresence.Unrecognized
@@ -78,6 +92,7 @@ namespace ScheduledRestart.Services
             {
                 Presence = presence,
                 Schedule = schedule,
+                Missed = presence == TaskPresence.Active && RunHistory.IsMissed(schedule, registered, state.LastRun, DateTime.Now),
                 NextRun = state.NextRun,
                 LastRun = state.LastRun,
                 LastResult = state.LastResult
@@ -170,6 +185,26 @@ namespace ScheduledRestart.Services
                 return "חשבון ההרצה של המשימה אינו SYSTEM עם הרשאות מלאות.";
             if (!state.Enabled || !info.Enabled) return "המשימה אינה פעילה.";
             return null;
+        }
+
+        /// <summary>
+        /// When the app's one-time task is more than 10 minutes past its time: logs whether it ran, deletes
+        /// it and returns the outcome text for the status card. Otherwise returns null.
+        /// </summary>
+        public string ResolveFinishedOneTime()
+        {
+            RegisteredTaskState state = _client.GetState();
+            if (state == null) return null;
+            RestartSchedule schedule;
+            try { schedule = TaskXml.Parse(state.Xml).Schedule; }
+            catch (System.Xml.XmlException) { return null; }
+
+            OneTimeResult result = RunHistory.EvaluateOneTime(schedule, state.LastRun, DateTime.Now);
+            if (result == OneTimeResult.Pending) return null;
+            string text = RunHistory.OneTimeText(result, state.LastRun);
+            _client.Delete();
+            _log.Write(text + ". המשימה החד־פעמית נמחקה.", EventLogEntryType.Information, AppConstants.EventDeleted);
+            return text;
         }
 
         public void SetEnabled(bool enabled)

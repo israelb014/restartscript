@@ -119,6 +119,39 @@ namespace ScheduledRestart.Core
             }
         }
 
+        /// <summary>Latest occurrence at or before <paramref name="atOrBefore"/>, or null when there is none.</summary>
+        public DateTime? GetPreviousRun(DateTime atOrBefore)
+        {
+            switch (Kind)
+            {
+                case ScheduleKind.Once:
+                {
+                    DateTime at = Date + Time;
+                    return at <= atOrBefore ? at : (DateTime?)null;
+                }
+                case ScheduleKind.Daily:
+                {
+                    DateTime at = atOrBefore.Date + Time;
+                    return at <= atOrBefore ? at : at.AddDays(-1);
+                }
+                case ScheduleKind.Weekly:
+                    for (int i = 0; i <= 7; i++)
+                    {
+                        DateTime at = atOrBefore.Date.AddDays(-i) + Time;
+                        if (at <= atOrBefore && Days.Contains(at.DayOfWeek)) return at;
+                    }
+                    return null;
+                default:
+                    DateTime month = new DateTime(atOrBefore.Year, atOrBefore.Month, 1);
+                    for (int m = 0; m < 24; m++, month = month.AddMonths(-1))
+                    {
+                        DateTime? day = GetMonthlyDate(month);
+                        if (day.HasValue && day.Value + Time <= atOrBefore) return day.Value + Time;
+                    }
+                    return null;
+            }
+        }
+
         private DateTime? GetMonthlyDate(DateTime firstOfMonth)
         {
             int daysInMonth = DateTime.DaysInMonth(firstOfMonth.Year, firstOfMonth.Month);

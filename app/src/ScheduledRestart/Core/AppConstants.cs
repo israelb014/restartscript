@@ -11,6 +11,10 @@ namespace ScheduledRestart.Core
         public const string LogDirectory = @"C:\ProgramData\ScheduledRestart";
         public const string LogFile = @"C:\ProgramData\ScheduledRestart\ScheduledRestart.log";
         public const string BackupFile = @"C:\ProgramData\ScheduledRestart\ScheduledRestart.previous.xml";
+        public const string BackupsDirectory = @"C:\ProgramData\ScheduledRestart\backups";
+
+        /// <summary>Folder used by the app's own integration tests; never reported as a foreign task.</summary>
+        public const string TestTaskFolderName = "ScheduledRestartTest";
         public const string EventSource = "ScheduledRestart";
         public const string EventLogName = "Application";
         public const string SystemSid = "S-1-5-18";
@@ -29,6 +33,7 @@ namespace ScheduledRestart.Core
         public const int EventRestartCancelled = 1006;
         public const int EventFailure = 1007;
         public const int EventRollback = 1008;
+        public const int EventForeignTask = 1009;
 
         /// <summary>Full path of shutdown.exe used in the task action and for "restart now".</summary>
         public static string ShutdownExe
