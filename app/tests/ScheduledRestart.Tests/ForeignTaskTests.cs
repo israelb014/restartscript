@@ -318,12 +318,66 @@ namespace ScheduledRestart.Tests
         {
             var once = RestartSchedule.Once(new DateTime(2026, 10, 7), Three);
             Assert.AreEqual(OneTimeResult.Pending, RunHistory.EvaluateOneTime(once, null, new DateTime(2026, 10, 7, 3, 5, 0)));
+            // A recorded run is reported immediately, without the 10-minute grace.
+            Assert.AreEqual(OneTimeResult.Executed, RunHistory.EvaluateOneTime(once, new DateTime(2026, 10, 7, 3, 0, 0), new DateTime(2026, 10, 7, 3, 0, 30)), "run exactly at trigger time");
+            Assert.AreEqual(OneTimeResult.Executed, RunHistory.EvaluateOneTime(once, new DateTime(2026, 10, 7, 3, 1, 0), new DateTime(2026, 10, 7, 3, 2, 0)), "run one minute after trigger time");
+            Assert.AreEqual("התזמון החד־פעמי בוצע ב־07/10/2026 בשעה 03:01", RunHistory.OneTimeText(OneTimeResult.Executed, new DateTime(2026, 10, 7, 3, 1, 0)));
+            Assert.AreEqual(OneTimeResult.Pending, RunHistory.EvaluateOneTime(once, new DateTime(2026, 10, 7, 2, 59, 59), new DateTime(2026, 10, 7, 3, 5, 0)), "run before trigger time, still in grace");
+            Assert.AreEqual(OneTimeResult.Missed, RunHistory.EvaluateOneTime(once, new DateTime(2026, 10, 7, 2, 59, 59), new DateTime(2026, 10, 7, 3, 10, 0)), "no run at or after trigger, grace over");
             Assert.AreEqual(OneTimeResult.Missed, RunHistory.EvaluateOneTime(once, null, new DateTime(2026, 10, 7, 3, 11, 0)));
             Assert.AreEqual(OneTimeResult.Executed, RunHistory.EvaluateOneTime(once, new DateTime(2026, 10, 7, 3, 0, 4), new DateTime(2026, 10, 7, 9, 0, 0)));
             Assert.AreEqual(OneTimeResult.Missed, RunHistory.EvaluateOneTime(once, new DateTime(2026, 10, 1, 3, 0, 0), new DateTime(2026, 10, 7, 9, 0, 0)), "older run");
             Assert.AreEqual(OneTimeResult.Pending, RunHistory.EvaluateOneTime(RestartSchedule.Daily(Three), null, new DateTime(2026, 10, 9)));
             Assert.AreEqual("התזמון החד־פעמי בוצע ב־07/10/2026 בשעה 03:00", RunHistory.OneTimeText(OneTimeResult.Executed, new DateTime(2026, 10, 7, 3, 0, 4)));
             Assert.AreEqual("התזמון החד־פעמי לא בוצע, המחשב היה כבוי", RunHistory.OneTimeText(OneTimeResult.Missed, null));
+        }
+    }
+
+    [TestClass]
+    public class BitLockerRuleTests
+    {
+        private static readonly int[] AllConversionStatuses = { 0, 1, 2, 3, 4, 5 }; // decrypted, encrypted, encrypting, decrypting, encryption paused, decryption paused
+
+        // name, protector types, warns when the volume is not fully decrypted
+        private static readonly object[][] Protectors =
+        {
+            new object[] { "TPM only", new[] { 1 }, false },
+            new object[] { "TPM + recovery password", new[] { 1, 3 }, false },
+            new object[] { "recovery password only", new[] { 3 }, false },
+            new object[] { "TPM+PIN", new[] { 4 }, true },
+            new object[] { "TPM+PIN + recovery password", new[] { 4, 3 }, true },
+            new object[] { "passphrase only", new[] { 8 }, true },
+            new object[] { "startup key", new[] { 2 }, true },
+            new object[] { "TPM+startup key", new[] { 5 }, true },
+            new object[] { "TPM+PIN+startup key", new[] { 6 }, true },
+            new object[] { "public key / certificate", new[] { 7 }, false },
+            new object[] { "no protectors", new int[0], false }
+        };
+
+        public static IEnumerable<object[]> Table()
+        {
+            foreach (int status in AllConversionStatuses)
+                foreach (object[] p in Protectors)
+                    yield return new object[] { status, p[0], p[1], status != 0 && (bool)p[2] };
+        }
+
+        [DataTestMethod]
+        [DynamicData(nameof(Table), DynamicDataSourceType.Method)]
+        public void Rule(int conversionStatus, string name, int[] protectorTypes, bool expected)
+        {
+            Assert.AreEqual(expected, BitLockerRule.StopsAtPreBoot(conversionStatus, protectorTypes), name + " / conversion status " + conversionStatus);
+        }
+
+        [TestMethod]
+        public void NamedScenarios()
+        {
+            Assert.IsTrue(BitLockerRule.StopsAtPreBoot(2, new[] { 8 }), "passphrase while encrypting");
+            // Protection status is not an input: a suspended TPM+PIN volume still asks for the PIN once resumed.
+            Assert.IsTrue(BitLockerRule.StopsAtPreBoot(1, new[] { 4, 3 }), "TPM+PIN while suspended");
+            Assert.IsFalse(BitLockerRule.StopsAtPreBoot(0, new[] { 4, 8, 2, 5, 6 }), "fully decrypted with stale protectors");
+            Assert.IsFalse(BitLockerRule.StopsAtPreBoot(1, new int[0]), "no protectors");
+            Assert.IsFalse(BitLockerRule.StopsAtPreBoot(1, null), "no protector list");
+            Assert.IsFalse(BitLockerRule.StopsAtPreBoot(1, new[] { 1 }), "TPM only (Windows 11 device encryption)");
         }
     }
 

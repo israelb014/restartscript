@@ -260,34 +260,87 @@ namespace ScheduledRestart.Services
         }
     }
 
+    /// <summary>Reads the system drive's BitLocker state over WMI and applies <see cref="BitLockerRule"/>.</summary>
     internal static class BitLocker
     {
-        /// <summary>True when BitLocker protection is on for the system drive. Any failure means "unknown" (false).</summary>
-        public static bool IsSystemDriveProtected()
+        private const string Namespace = @"\\.\root\CIMV2\Security\MicrosoftVolumeEncryption";
+
+        /// <summary>
+        /// True when a restart would stop at a pre-boot prompt. Never throws: when the namespace is missing,
+        /// access is denied or any query fails it returns false and describes the failure in <paramref name="error"/>.
+        /// </summary>
+        public static bool ShouldWarn(out string error)
         {
+            error = null;
             try
             {
-                string drive = Environment.GetEnvironmentVariable("SystemDrive") ?? "C:";
-                var scope = new ManagementScope(@"\\.\root\CIMV2\Security\MicrosoftVolumeEncryption");
-                scope.Connect();
-                using (var searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT DriveLetter, ProtectionStatus FROM Win32_EncryptableVolume")))
-                using (ManagementObjectCollection volumes = searcher.Get())
+                int conversionStatus;
+                int[] protectorTypes;
+                if (!TryReadSystemVolume(out conversionStatus, out protectorTypes)) return false;
+                return BitLockerRule.StopsAtPreBoot(conversionStatus, protectorTypes);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        /// <returns>False when the system drive is not an encryptable volume (nothing to check).</returns>
+        private static bool TryReadSystemVolume(out int conversionStatus, out int[] protectorTypes)
+        {
+            conversionStatus = BitLockerRule.FullyDecrypted;
+            protectorTypes = new int[0];
+            string drive = Environment.GetEnvironmentVariable("SystemDrive") ?? "C:";
+            var scope = new ManagementScope(Namespace);
+            scope.Connect();
+            using (var searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM Win32_EncryptableVolume")))
+            using (ManagementObjectCollection volumes = searcher.Get())
+            {
+                foreach (ManagementObject volume in volumes)
                 {
-                    foreach (ManagementBaseObject volume in volumes)
+                    using (volume)
                     {
-                        using (volume)
+                        if (!string.Equals(volume["DriveLetter"] as string, drive, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        using (ManagementBaseObject status = Call(volume, "GetConversionStatus", null))
+                            conversionStatus = Convert.ToInt32(status["ConversionStatus"]);
+
+                        var types = new List<int>();
+                        string[] ids;
+                        using (ManagementBaseObject input = volume.GetMethodParameters("GetKeyProtectors"))
                         {
-                            if (string.Equals(volume["DriveLetter"] as string, drive, StringComparison.OrdinalIgnoreCase))
-                                return Convert.ToUInt32(volume["ProtectionStatus"]) == 1;
+                            input["KeyProtectorType"] = 0u; // all types
+                            using (ManagementBaseObject result = Call(volume, "GetKeyProtectors", input))
+                                ids = result["VolumeKeyProtectorID"] as string[] ?? new string[0];
                         }
+                        foreach (string id in ids)
+                        {
+                            using (ManagementBaseObject input = volume.GetMethodParameters("GetKeyProtectorType"))
+                            {
+                                input["VolumeKeyProtectorID"] = id;
+                                using (ManagementBaseObject result = Call(volume, "GetKeyProtectorType", input))
+                                    types.Add(Convert.ToInt32(result["KeyProtectorType"]));
+                            }
+                        }
+                        protectorTypes = types.ToArray();
+                        return true;
                     }
                 }
             }
-            catch (Exception)
-            {
-                // Namespace missing (BitLocker not installed), access denied or WMI broken: continue silently.
-            }
             return false;
+        }
+
+        private static ManagementBaseObject Call(ManagementObject volume, string method, ManagementBaseObject input)
+        {
+            ManagementBaseObject result = volume.InvokeMethod(method, input, null);
+            uint code = Convert.ToUInt32(result["ReturnValue"]);
+            if (code != 0)
+            {
+                result.Dispose();
+                throw new InvalidOperationException(string.Format("{0} returned 0x{1:X8}", method, code));
+            }
+            return result;
         }
     }
 }

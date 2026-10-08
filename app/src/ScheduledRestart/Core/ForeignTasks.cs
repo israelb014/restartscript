@@ -102,12 +102,16 @@ namespace ScheduledRestart.Core
             return !(lastRun.HasValue && lastRun.Value >= expected.Value.AddMinutes(-1));
         }
 
+        /// <summary>
+        /// Executed as soon as a run at or after the trigger time is recorded. Missed only when there is no such
+        /// run and the trigger time is more than 10 minutes in the past.
+        /// </summary>
         public static OneTimeResult EvaluateOneTime(RestartSchedule schedule, DateTime? lastRun, DateTime now)
         {
             if (schedule == null || schedule.Kind != ScheduleKind.Once) return OneTimeResult.Pending;
             DateTime at = schedule.Date + schedule.Time;
-            if (now < at + Grace) return OneTimeResult.Pending;
-            return lastRun.HasValue && lastRun.Value >= at.AddMinutes(-1) ? OneTimeResult.Executed : OneTimeResult.Missed;
+            if (lastRun.HasValue && lastRun.Value >= at) return OneTimeResult.Executed;
+            return now >= at + Grace ? OneTimeResult.Missed : OneTimeResult.Pending;
         }
 
         public static string OneTimeText(OneTimeResult result, DateTime? lastRun)

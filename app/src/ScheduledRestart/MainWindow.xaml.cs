@@ -308,24 +308,37 @@ namespace ScheduledRestart
     /// <summary>Confirmations shared by every path that saves a schedule.</summary>
     internal static class SaveGuards
     {
-        /// <summary>Asks for confirmation when BitLocker protects the system drive. Returns false when the user cancels.</summary>
+        private static bool _bitLockerFailureLogged;
+
+        /// <summary>
+        /// Asks for confirmation when BitLocker would stop the restart at a pre-boot prompt (PIN, passphrase or
+        /// startup key). Returns false when the user cancels. A failed check never blocks saving; it is logged once.
+        /// </summary>
         public static bool ConfirmBitLocker(Window owner)
         {
             Mouse.OverrideCursor = Cursors.Wait;
-            bool protectedDrive;
+            bool warn;
+            string error;
             try
             {
-                protectedDrive = BitLocker.IsSystemDriveProtected();
+                warn = BitLocker.ShouldWarn(out error);
             }
             finally
             {
                 Mouse.OverrideCursor = null;
             }
-            if (!protectedDrive) return true;
-            bool confirmed = MessageDialog.Confirm(owner, "ביטלוקר פועל, האם מאשר להגדיר הפעלה מחדש מתוזמנת?", "מאשר", "ביטול");
+            if (error != null && !_bitLockerFailureLogged)
+            {
+                _bitLockerFailureLogged = true;
+                App.Log.Write("בדיקת ביטלוקר לא הושלמה, ההגדרה נמשכת בלי אזהרה: " + error);
+            }
+            if (!warn) return true;
+            bool confirmed = MessageDialog.Confirm(owner,
+                "ביטלוקר במחשב הזה מבקש סיסמה בהדלקה. אחרי ההפעלה מחדש המחשב ייעצר עד שמישהו יקליד אותה. האם מאשר להגדיר הפעלה מחדש מתוזמנת?",
+                "מאשר", "ביטול");
             App.Log.Write(confirmed
-                ? "ביטלוקר פועל בכונן המערכת: המשתמש אישר הגדרת הפעלה מחדש מתוזמנת."
-                : "ביטלוקר פועל בכונן המערכת: המשתמש ביטל את הגדרת ההפעלה מחדש המתוזמנת.");
+                ? "ביטלוקר מבקש סיסמה בהדלקה: המשתמש אישר הגדרת הפעלה מחדש מתוזמנת."
+                : "ביטלוקר מבקש סיסמה בהדלקה: המשתמש ביטל את הגדרת ההפעלה מחדש המתוזמנת.");
             return confirmed;
         }
     }

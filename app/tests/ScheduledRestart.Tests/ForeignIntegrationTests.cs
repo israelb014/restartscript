@@ -256,6 +256,15 @@ namespace ScheduledRestart.Tests
             Assert.AreEqual(5, _service.Scan().Tasks.Count, "foreign tasks untouched");
         }
 
+        [TestMethod]
+        public void BitLocker_RealQuery_DoesNotThrowAndDoesNotWarn()
+        {
+            string error;
+            bool warn = BitLocker.ShouldWarn(out error);
+            Console.WriteLine("BitLocker check error (null = query succeeded): " + (error ?? "null"));
+            Assert.IsFalse(warn, "the CI runner has no pre-boot BitLocker protector");
+        }
+
         /// <summary>Deletes every task and folder under the test root (any depth).</summary>
         private static void DeleteTestTree()
         {
